@@ -98,6 +98,7 @@ be recorded in the release-readiness record.
 ## Technical Baseline
 
 - Language: portable C99 with compiler extensions disabled.
+- Runtime: pinned WCRT, statically linked into official release artifacts.
 - Platform API: Win32, isolated below `src/platform/windows/`.
 - Build: CMake with checked-in configure, build, and test presets.
 - Test runner: CTest, with small C unit-test executables and process-level
@@ -106,6 +107,8 @@ be recorded in the release-readiness record.
   GCC-compatible Windows compiler are secondary compatibility gates once the
   core is stable.
 - Dependencies provisioned by WPM: `wcrt`, `kertex`, and `cv2pdb`.
+- Product artifacts: portable `wsh.exe`, static `wshlib`, alternative
+  `wshlib.dll`, public ABI header, and required symbols/evidence.
 - Debug symbols: DWARF is retained for WSP/GDB evidence; `cv2pdb` generates an
   additional PDB artifact for Windows debugging.
 - Documentation: controlled Markdown remains authoritative. Generated test
@@ -131,7 +134,12 @@ cmake/
 docs/
   adoption-record.md
   architecture.md
+  design-for-security.md
+  project-process.md
+  test-strategy.md
   requirements/
+  specification/
+  planning/
   adr-*.md
 include/wsh/
 src/
@@ -203,14 +211,15 @@ is required before release claims are made.
 
 ## Milestones and Exit Criteria
 
-| Milestone | Outcome | Exit criteria |
-| --- | --- | --- |
-| M0: Baseline | Governed repository | WSP adoption record, requirements index, ADRs, presets, WPM dependency spike |
-| M1: Parse | Language front end | Lexer/parser core passes unit and malformed-input tests with no leaks |
-| M2: Execute | Useful batch shell | External commands, variables, built-ins, status, and redirection pass acceptance tests |
-| M3: Compose | Structured scripts | Control flow, functions, pipelines, substitution, and globbing pass conformance tests |
-| M4: Interact | Daily interactive use | Prompt, history, interrupts, and child cleanup pass console tests |
-| M5: Release candidate | Supported baseline | All applicable requirements traced; x86/x64/ARM64 claims backed by native evidence; documentation and trust gates pass |
+The controlled [milestone plan](planning/milestones.md) divides WSH 1.0 into
+M0 through M10. Each milestone repeats Baseline, Plan, Specify, Design,
+Implement, Review, Verify, and Close activities under WSP. The plan includes
+scope, dependencies, exit gates, prompt-library entry, and explicit token
+budget for each milestone.
+
+No production implementation begins until M0 accepts the complete proposed
+requirements, language, CLI, configuration, registry, platform, standard-
+library, embedding, architecture, and security baseline.
 
 ## Principal Risks
 
@@ -242,12 +251,13 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Approve the compatibility boundaries in the draft requirements and ADRs.
-2. Verify actual WPM package names, architectures, versions, and install-root
-   metadata for WCRT, KerTeX, and cv2pdb.
-3. Run a KerTeX/WSP report compatibility spike.
-4. Create the CMake skeleton, presets, `wsh --version`, and a smoke CTest.
-5. Define the lexer grammar and the first `TC-NNNN` parser cases.
+1. Execute the M0 specification-baseline review prompt.
+2. Resolve every requirements/specification contradiction and residual-risk
+   decision without writing production code.
+3. Approve the WSP adoption record, ADRs, DFS, requirement allocation, and
+   planned test families.
+4. Re-estimate M1 from the accepted baseline and only then begin the toolchain
+   skeleton.
 
 ## References
 
@@ -255,4 +265,3 @@ A release candidate is acceptable only when:
 - Plan 9 from User Space, `rc(1)` manual.
 - WSP software lifecycle, requirements management, C style, CMake style,
   testing strategy, documentation requirements, and security profiles.
-

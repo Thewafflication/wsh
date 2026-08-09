@@ -9,11 +9,16 @@ functions, structured commands, pipelines, and ordered redirection—while
 defining explicit native behavior for Windows processes, paths, environment
 variables, consoles, and handles.
 
-The implementation is currently in the planning and project-baselining stage.
+The implementation is currently in the specification and project-baselining
+stage. Production implementation is intentionally deferred until the proposed
+1.0 requirements and specification complete milestone M0 review.
 
 ## Project Goals
 
 - Target Windows without requiring a POSIX compatibility layer.
+- Ship one portable, statically WCRT-linked binary per architecture.
+- Run the same x86 binary from Windows 2000 through current Windows.
+- Support both interactive use and deterministic batch automation.
 - Implement the shell in portable C99.
 - Keep language parsing, evaluation, and Win32 integration separate.
 - Configure and build the project with CMake presets.
@@ -27,21 +32,20 @@ Waughtal Shell is inspired by `rc`; it does not initially promise that every
 Plan 9 `rc` script will run unchanged. Platform-dependent behavior and
 intentional differences will be documented and tested.
 
-## Planned Development
+## Specification
 
-The proposed roadmap is:
+The proposed 1.0 contract defines:
 
-1. Establish the WSP, dependency, build, and test-evidence baseline.
-2. Implement and test the lexer and parser.
-3. Add variables, built-ins, external command execution, status handling, and
-   redirection.
-4. Add structured control flow, functions, pipelines, command substitution,
-   and globbing.
-5. Add an interactive prompt, history, and Windows console interruption.
-6. Complete the documented 1.0 compatibility and release baseline.
+- the complete `rc`-inspired language and Windows adaptations;
+- command-line modes and options;
+- inert configuration, executable profiles, and optional registry integration;
+- an embedded filesystem/process/test standard library;
+- interactive editing, history, completion, and interruption; and
+- a stable static/shared C embedding API.
 
-See the [project plan], [draft requirements], and [architecture decisions] for
-details.
+See the [specification index], [product requirements], [project plan], and
+[milestone plan]. The [`rc` compatibility record] identifies every adopted,
+adapted, extended, or excluded reference behavior.
 
 ## Proposed Toolchain
 
@@ -84,7 +88,10 @@ Project-owned source files should use:
 ```
 
 [project plan]: docs/project-plan.md
-[draft requirements]: docs/requirements/product-requirements.md
+[product requirements]: docs/requirements/product-requirements.md
+[specification index]: docs/specification/README.md
+[milestone plan]: docs/planning/milestones.md
+[rc compatibility record]: docs/specification/rc-compatibility.md
 [architecture decisions]: docs/adr-0001-rc-inspired-windows-language.md
 [adoption record]: docs/adoption-record.md
 [rc-manual]: https://9fans.github.io/plan9port/man/man1/rc.html

@@ -19,6 +19,11 @@ and ordered redirection. Platform-dependent behavior will have a Windows-native
 contract and will be identified as compatible, adapted, unsupported, or
 deferred in the language reference and tests.
 
+The 1.0 specification uses the dispositions adopted, adapted, extended, and
+excluded. Every language change review will first determine what the `rc`
+documentation specifies and then whether that behavior is compatible with the
+supported Windows range.
+
 The project will not claim that arbitrary Plan 9 `rc` scripts execute unchanged.
 
 ## Consequences
@@ -28,4 +33,5 @@ The project will not claim that arbitrary Plan 9 `rc` scripts execute unchanged.
 - Windows users receive predictable native process and path behavior.
 - A compatibility matrix and conformance suite become release artifacts.
 - Some Plan 9 features require deliberate analogues or remain unsupported.
-
+- The compatibility record and conformance suite must change with any language
+  decision.

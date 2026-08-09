@@ -12,8 +12,9 @@ test evidence and GDB-compatible Debug symbols.
 
 ## Decision
 
-WPM will provision pinned WCRT, KerTeX, and cv2pdb packages. CMake presets will
-describe architecture and configuration. CTest will dispatch every automated
+WPM will provision pinned WCRT, KerTeX, and cv2pdb packages. Official portable
+artifacts will statically link WCRT. CMake presets will describe architecture
+and configuration. CTest will dispatch every automated
 test and evidence check. Test wrappers will generate TeX evidence and KerTeX
 will compile the assembled report. TinyCC Debug builds will retain DWARF;
 cv2pdb will generate an additional PDB where supported.
@@ -27,4 +28,3 @@ KerTeX compatibility with the WSP report inputs, and dual-symbol retention.
 - Test reporting is a tested build product rather than a manual afterthought.
 - Generated PDBs improve native debugging without weakening WSP evidence.
 - Package metadata and KerTeX compatibility are early schedule risks.
-

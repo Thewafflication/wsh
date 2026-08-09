@@ -17,6 +17,10 @@ Evaluation will operate on list values and abstract runtime services. Win32
 process, console, filesystem, environment, and handle behavior will be isolated
 behind interfaces in `src/platform/windows/`.
 
+The core will be a context-based library used by `wsh.exe` and the embedding
+ABI. It will not depend on process-global current directory, locale,
+environment, console, or standard-stream mutation.
+
 ## Consequences
 
 - Lexer, parser, expansion, and evaluation can be unit-tested without child
@@ -24,4 +28,5 @@ behind interfaces in `src/platform/windows/`.
 - Windows behavior can be tested with purpose-built helper executables.
 - Interfaces must carry explicit allocation, ownership, encoding, and error
   contracts, adding modest up-front design work.
-
+- Static, shared, executable, and foreign-language hosts can run the same
+  conformance suite.

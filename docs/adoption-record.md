@@ -20,11 +20,11 @@
 | Requirement set or practice | Applicability | Project artifact or scope |
 | --- | --- | --- |
 | Common requirements management | Yes | `docs/requirements/` and traceability records |
-| WSP software lifecycle | Yes | `docs/project-plan.md` |
-| Project process | Yes | `docs/project-plan.md` and release records |
+| WSP software lifecycle | Yes | `docs/project-plan.md`, `docs/planning/`, and milestone records |
+| Project process | Yes | `docs/project-process.md`, milestone prompts, and release records |
 | Documentation requirements | Yes | Controlled project and release documentation |
 | Documentation style and identifiers | Yes | Project-authored artifacts |
-| Testing requirements | Yes | CTest specifications, evidence, and reports |
+| Testing requirements | Yes | `docs/test-strategy.md`, CTest specifications, evidence, and reports |
 
 ## Selected Profiles
 
@@ -43,6 +43,12 @@
 
 Detailed row-by-row dispositions will be completed during M0 before any
 release baseline is approved. No adopted requirement is silently omitted.
+
+The proposed project baseline now includes the complete WSH 1.0 specification,
+architecture, Design for Security, project process, test strategy, M0--M10
+milestone plan, and token-budgeted prompt library. These artifacts remain
+proposed until the M0 review records their acceptance and the row-by-row WSP
+disposition.
 
 ### WSP-DOC toolchain — KerTeX selection
 
@@ -75,4 +81,3 @@ release baseline is approved. No adopted requirement is silently omitted.
 | Date | WSP baseline | Project change | Summary |
 | --- | --- | --- | --- |
 | 2026-08-04 | `2198ccab08f969a789448767fe7017b774369adc` | Initial plan | Proposed WSP adoption |
-
