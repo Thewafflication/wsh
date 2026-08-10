@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-STDLIB-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Purpose and Packaging
 

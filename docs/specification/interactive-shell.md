@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-INTERACTIVE-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Mode and Startup
 

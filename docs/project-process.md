@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-PROC-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Purpose
 

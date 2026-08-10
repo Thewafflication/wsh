@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-PLATFORM-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Compatibility Promise
 

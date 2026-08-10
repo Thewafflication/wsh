@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-RC-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Method
 

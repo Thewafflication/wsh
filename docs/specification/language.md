@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-LANG-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Target release:** 1.0
 

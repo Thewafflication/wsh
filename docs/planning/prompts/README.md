@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-PLAN-PROMPTS-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## Use
 

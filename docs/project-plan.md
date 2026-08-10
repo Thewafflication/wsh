@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-PLAN-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-04
 
@@ -251,13 +251,14 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Execute the M0 specification-baseline review prompt.
-2. Resolve every requirements/specification contradiction and residual-risk
-   decision without writing production code.
-3. Approve the WSP adoption record, ADRs, DFS, requirement allocation, and
-   planned test families.
-4. Re-estimate M1 from the accepted baseline and only then begin the toolchain
-   skeleton.
+1. Use the accepted M0 baseline as the governing source of requirements and
+   compatibility decisions.
+2. Proceed with the M1 toolchain and repository skeleton based on the approved
+   baseline.
+3. Retain the M0 review record, traceability inventory, and accepted
+   tailoring decisions as the controlling evidence for all later milestones.
+4. Re-estimate M1 from the accepted baseline and continue only with the
+   approved toolchain and project-process controls.
 
 ## References
 

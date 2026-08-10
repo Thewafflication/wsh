@@ -9,9 +9,10 @@ functions, structured commands, pipelines, and ordered redirection—while
 defining explicit native behavior for Windows processes, paths, environment
 variables, consoles, and handles.
 
-The implementation is currently in the specification and project-baselining
-stage. Production implementation is intentionally deferred until the proposed
-1.0 requirements and specification complete milestone M0 review.
+The 1.0 requirements, specification, architecture, and project process have
+completed the M0 baseline review and are accepted as the project baseline.
+Production implementation is intentionally deferred until the M1 toolchain and
+repository skeleton milestone.
 
 ## Project Goals
 

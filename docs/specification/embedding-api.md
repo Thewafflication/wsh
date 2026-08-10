@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-EMBED-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Scope
 

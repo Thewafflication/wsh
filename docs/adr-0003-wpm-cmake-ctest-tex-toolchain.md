@@ -1,6 +1,6 @@
 # ADR-0003: WPM-Provisioned CMake, CTest, and TeX Toolchain
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-04
 

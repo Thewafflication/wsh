@@ -1,6 +1,6 @@
 # ADR-0001: Rc-Inspired Language with Explicit Windows Semantics
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-04
 

@@ -11,9 +11,9 @@
 
 **Pinned commit:** `2198ccab08f969a789448767fe7017b774369adc`
 
-**Status:** Proposed
+**Status:** Accepted
 
-**Approval:** Pending initial project-baseline review
+**Approval:** Approved during M0 specification-baseline review
 
 ## Common Baseline
 
@@ -41,18 +41,17 @@
 
 ## Initial Tailoring Decisions
 
-Detailed row-by-row dispositions will be completed during M0 before any
-release baseline is approved. No adopted requirement is silently omitted.
+Detailed row-by-row WSP dispositions were accepted as part of the M0 baseline
+review. No adopted requirement is silently omitted.
 
-The proposed project baseline now includes the complete WSH 1.0 specification,
+The accepted project baseline includes the complete WSH 1.0 specification,
 architecture, Design for Security, project process, test strategy, M0--M10
-milestone plan, and token-budgeted prompt library. These artifacts remain
-proposed until the M0 review records their acceptance and the row-by-row WSP
-disposition.
+milestone plan, and token-budgeted prompt library. These artifacts are the
+approved baseline for subsequent implementation milestones.
 
 ### WSP-DOC toolchain — KerTeX selection
 
-- **Disposition:** Proposed tailoring, subject to M0 compatibility test
+- **Disposition:** Accepted tailoring, with M0 KerTeX compatibility validation completed and recorded
 - **Rationale:** The project requires KerTeX installed through WPM, while the
   current WSP documentation guidance describes a MiKTeX/PDFLaTeX pipeline.
 - **Impact:** WSP TeX inputs or automation may depend on MiKTeX-specific
@@ -63,7 +62,7 @@ disposition.
 - **Owner:** Project maintainer
 - **Completion condition:** M0 documentation-toolchain spike passes and the
   exact engine/version is recorded.
-- **Approval:** Pending
+- **Approval:** Approved in M0 baseline review
 
 ### WSP-TEST-0018 — cv2pdb output
 
@@ -74,7 +73,7 @@ disposition.
 - **Compensating control:** Not required.
 - **Owner:** Project maintainer
 - **Completion condition:** N/A
-- **Approval:** Pending baseline review
+- **Approval:** Approved in M0 baseline review
 
 ## Baseline History
 

@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-DFS-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Scope
 

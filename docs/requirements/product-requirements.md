@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-REQ-INDEX`
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Baseline target:** WSH 1.0
 

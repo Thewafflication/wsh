@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-INDEX`
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Target release:** 1.0
 

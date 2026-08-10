@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-TEST-STRATEGY-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Scope
 

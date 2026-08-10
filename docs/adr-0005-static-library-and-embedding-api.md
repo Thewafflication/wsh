@@ -1,6 +1,6 @@
 # ADR-0005: Context-Based Library and Stable Embedding API
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-09
 

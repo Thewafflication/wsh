@@ -1,6 +1,6 @@
 # ADR-0002: Separate Parser, Evaluator, and Windows Runtime
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-04
 

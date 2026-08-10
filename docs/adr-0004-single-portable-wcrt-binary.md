@@ -1,6 +1,6 @@
 # ADR-0004: One Portable WCRT Binary per Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-09
 

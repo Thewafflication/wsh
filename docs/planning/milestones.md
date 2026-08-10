@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-PLAN-MILESTONES-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Planning Model
 

@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-SPEC-CLI-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Invocation Forms
 

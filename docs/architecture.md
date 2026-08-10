@@ -2,7 +2,7 @@
 
 **Document ID:** `WSH-ARCH-0001`
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## 1. Architectural Goals
 

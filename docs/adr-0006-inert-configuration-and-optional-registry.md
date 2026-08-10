@@ -1,6 +1,6 @@
 # ADR-0006: Inert Configuration and Optional Registry Integration
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-08-09
 
