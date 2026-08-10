@@ -1,0 +1,13 @@
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/Experimental.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/Nightly.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/Continuous.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/NightlyMemoryCheck.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/wsh_static.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/wsh_shared.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/wsh.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/RUN_TESTS.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/INSTALL.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/ALL_BUILD.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/CMakeFiles/ZERO_CHECK.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests/CMakeFiles/RUN_TESTS.dir
+C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests/CMakeFiles/INSTALL.dir

@@ -1,0 +1,36 @@
+# CMake generated Testfile for 
+# Source directory: C:/Users/jmwau/source/repos/wsh/tests
+# Build directory: C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test([=[version-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Debug/wsh.exe" "--version")
+  set_tests_properties([=[version-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "Waughtal Shell.*Version 1\\.0\\.0" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;3;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test([=[version-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Release/wsh.exe" "--version")
+  set_tests_properties([=[version-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "Waughtal Shell.*Version 1\\.0\\.0" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;3;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test([=[version-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/MinSizeRel/wsh.exe" "--version")
+  set_tests_properties([=[version-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "Waughtal Shell.*Version 1\\.0\\.0" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;3;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test([=[version-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/RelWithDebInfo/wsh.exe" "--version")
+  set_tests_properties([=[version-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "Waughtal Shell.*Version 1\\.0\\.0" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;3;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+else()
+  add_test([=[version-smoke]=] NOT_AVAILABLE)
+endif()
+if(CTEST_CONFIGURATION_TYPE MATCHES "^([Dd][Ee][Bb][Uu][Gg])$")
+  add_test([=[print-abi-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Debug/wsh.exe" "--print-abi")
+  set_tests_properties([=[print-abi-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "wsh embedding ABI 1" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;8;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
+  add_test([=[print-abi-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Release/wsh.exe" "--print-abi")
+  set_tests_properties([=[print-abi-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "wsh embedding ABI 1" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;8;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Mm][Ii][Nn][Ss][Ii][Zz][Ee][Rr][Ee][Ll])$")
+  add_test([=[print-abi-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/MinSizeRel/wsh.exe" "--print-abi")
+  set_tests_properties([=[print-abi-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "wsh embedding ABI 1" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;8;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+elseif(CTEST_CONFIGURATION_TYPE MATCHES "^([Rr][Ee][Ll][Ww][Ii][Tt][Hh][Dd][Ee][Bb][Ii][Nn][Ff][Oo])$")
+  add_test([=[print-abi-smoke]=] "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/RelWithDebInfo/wsh.exe" "--print-abi")
+  set_tests_properties([=[print-abi-smoke]=] PROPERTIES  PASS_REGULAR_EXPRESSION "wsh embedding ABI 1" _BACKTRACE_TRIPLES "C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;8;add_test;C:/Users/jmwau/source/repos/wsh/tests/CMakeLists.txt;0;")
+else()
+  add_test([=[print-abi-smoke]=] NOT_AVAILABLE)
+endif()

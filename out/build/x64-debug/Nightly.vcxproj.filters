@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\jmwau\source\repos\wsh\out\build\x64-debug\CMakeFiles\5120f754a15f6f80cbe08ba9550d49af\Nightly.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\jmwau\source\repos\wsh\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\jmwau\source\repos\wsh\out\build\x64-debug\CMakeFiles\Nightly" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9C719448-5F07-3615-BDCC-679B482B65F5}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
