@@ -1,0 +1,27 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0019}
+\def\TCTitle{Structured source-located diagnostics}
+\def\TCPurpose{Verify source and location reporting for WSH-REQ-0019.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0019}
+\def\TCDesignRef{M2 design: Diagnostics and Limits}
+\def\TCFeatureRef{Source spans and context diagnostic queue}
+\def\TCTestTechnique{Use-case testing and diagnostic boundary analysis.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Rendering color and source excerpts are later work.}
+\def\TCInputData{A tabbed multiline source, source name, code, and message.}
+\def\TCInitialState{A context with a one-diagnostic limit.}
+\def\TCProcedure{\begin{enumerate}
+\item Resolve a span that follows a tab and add one diagnostic.
+\item Inspect all borrowed fields and attempt a second diagnostic.
+\end{enumerate}}
+\def\TCExpectedResult{The first record contains exact source, scalar,
+display, and original-byte location. The bounded second insertion fails and
+does not replace the first record.}
+\def\TCPostConditions{The context and source release all owned text.}
+\TCTemplate
+\end{document}

@@ -31,15 +31,15 @@ replanning scope or budget before continuing.
 | M0 | Accepted specification and WSP baseline | None | 60,000 |
 | M1 | Reproducible toolchain, repository, and smoke-test skeleton | M0 | 80,000 |
 | M2 | Portable core library: source, Unicode, values, diagnostics, context | M1 | 110,000 |
-| M3 | Complete lexer, parser, AST, and grammar conformance | M2 | 140,000 |
-| M4 | Evaluator, variables, expansion, functions, and control flow | M3 | 150,000 |
+| M3 | Complete lexer, parser, AST, and grammar conformance | M2 | 150,000 |
+| M4 | Evaluator, variables, expansion, functions, and control flow | M3 | 160,000 |
 | M5 | Windows processes, arguments, redirection, pipelines, and jobs | M4 | 180,000 |
 | M6 | Embedded standard library and WSH-authored build/test orchestration | M5 | 160,000 |
 | M7 | Interactive console, editor, history, completion, and interruption | M5, M6 | 150,000 |
-| M8 | Stable embedding ABI, static SDK, DLL, and second-language host | M4--M7 | 130,000 |
-| M9 | Cross-version/architecture hardening and security closure | M1--M8 | 200,000 |
+| M8 | Stable embedding ABI, static SDK, DLL, and second-language host | M4--M7 | 135,000 |
+| M9 | Cross-version/architecture hardening and security closure | M1--M8 | 205,000 |
 | M10 | 1.0 release candidate, evidence, documentation, and trust | M9 | 120,000 |
-| **Total** | | | **1,480,000** |
+| **Total** | | | **1,510,000** |
 
 Budgets should be recalibrated after M1, M3, M5, and M8 using actual token,
 time, size, and defect data. A milestone may be divided into approved child
@@ -54,13 +54,13 @@ The recommended allocation is a starting forecast:
 | M0 | 12k | 22k | 8k | 0 | 10k | 6k | 2k | 60k |
 | M1 | 12k | 8k | 12k | 28k | 8k | 10k | 2k | 80k |
 | M2 | 15k | 10k | 15k | 40k | 10k | 17k | 3k | 110k |
-| M3 | 17k | 15k | 20k | 50k | 15k | 20k | 3k | 140k |
-| M4 | 18k | 15k | 20k | 55k | 15k | 24k | 3k | 150k |
+| M3 | 17k | 15k | 20k | 55k | 15k | 25k | 3k | 150k |
+| M4 | 18k | 15k | 22k | 60k | 15k | 27k | 3k | 160k |
 | M5 | 22k | 18k | 25k | 65k | 18k | 28k | 4k | 180k |
 | M6 | 20k | 16k | 20k | 58k | 16k | 26k | 4k | 160k |
 | M7 | 18k | 15k | 20k | 55k | 15k | 24k | 3k | 150k |
-| M8 | 16k | 14k | 20k | 43k | 14k | 20k | 3k | 130k |
-| M9 | 25k | 15k | 25k | 60k | 25k | 45k | 5k | 200k |
+| M8 | 16k | 14k | 22k | 45k | 14k | 21k | 3k | 135k |
+| M9 | 25k | 15k | 25k | 60k | 27k | 48k | 5k | 205k |
 | M10 | 18k | 10k | 12k | 25k | 15k | 35k | 5k | 120k |
 
 ## 4. Milestone Definitions
@@ -94,6 +94,15 @@ limits, and deterministic fake runtime.
 
 **Exit:** Boundary and fault-injection tests pass with no leak; public internal
 contracts reviewed; Unicode including supplementary characters round-trips.
+
+**M2 recalibration (2026-08-11):** The completed foundation required roughly
+3,400 core contract/implementation lines and 1,300 native test lines. Strict
+source maps, allocator ownership, fault-atomic builders, and traceable evidence
+showed more downstream interface and negative-test complexity than the initial
+parser/evaluator/ABI/security estimates allowed. M3 and M4 each gain 10k
+tokens, M8 and M9 each gain 5k, concentrated in implementation, review, and
+verification. M5--M7 and M10 remain unchanged pending their scheduled
+recalibration points.
 
 ### M3 — Lexer, Parser, and AST
 
@@ -179,7 +188,15 @@ vulnerability policy, and release-readiness record.
 passes; release artifacts trace to the approved source/dependency baseline;
 the release receives explicit approval.
 
-## 5. Cross-Milestone Controls
+## 5. Milestone Status Record
+
+| Milestone | Status | Evidence |
+| --- | --- | --- |
+| M0 | Accepted at `3ea772b` | `docs/milestones/m00-work-log.md` |
+| M1 | Historically complete at `b8d1e67`; evidence gaps retained | `docs/milestones/m01-work-log.md` |
+| M2 | Complete on 2026-08-11; Windows CI added | `docs/milestones/m02-closeout.md`, `docs/milestones/m02-ci-log.md` |
+
+## 6. Cross-Milestone Controls
 
 - Preserve user-owned work and use milestone-specific branches.
 - Do not accept implementation that creates an undocumented language behavior.

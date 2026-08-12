@@ -9,10 +9,10 @@ functions, structured commands, pipelines, and ordered redirection—while
 defining explicit native behavior for Windows processes, paths, environment
 variables, consoles, and handles.
 
-The 1.0 requirements, specification, architecture, and project process have
-completed the M0 baseline review and are accepted as the project baseline.
-Production implementation is intentionally deferred until the M1 toolchain and
-repository skeleton milestone.
+The 1.0 requirements, specification, architecture, and project process
+completed the M0 baseline review and form the accepted project baseline. The
+M1 repository skeleton and M2 portable core are implemented. Lexer, parser,
+evaluator, and Windows process behavior remain allocated to later milestones.
 
 ## Project Goals
 
@@ -48,7 +48,22 @@ See the [specification index], [product requirements], [project plan], and
 [milestone plan]. The [`rc` compatibility record] identifies every adopted,
 adapted, extended, or excluded reference behavior.
 
-## Proposed Toolchain
+## Build and Test
+
+The checked-in presets build the executable, static/shared library skeletons,
+portable core, and controlled tests. For example:
+
+```powershell
+cmake --preset x64-debug
+cmake --build --preset x64-debug
+ctest --preset x64-debug --output-on-failure
+```
+
+The same test dispatcher has x64 Release and x86 Debug presets. M2 test runs
+write isolated TeX evidence beneath each build tree and validate it through
+the pinned WSP tools.
+
+## Planned Release Toolchain
 
 Dependencies will be installed through WPM and pinned before the first release
 baseline:
@@ -59,8 +74,9 @@ wpm install kertex --arch <architecture> --version <version>
 wpm install cv2pdb --arch <architecture> --version <version>
 ```
 
-The exact configure, build, and test commands will be added with the initial
-CMake skeleton. CTest will remain the top-level test dispatcher.
+Release dependency pinning and the remaining cross-version matrix are tracked
+as historical M1 evidence gaps and later hardening work. CTest remains the
+top-level test dispatcher.
 
 ## Project Process
 

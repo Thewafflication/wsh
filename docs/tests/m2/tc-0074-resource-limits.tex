@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0074}
+\def\TCTitle{Pre-allocation portable-core resource limits}
+\def\TCPurpose{Verify the M2-owned bounds from WSH-REQ-0074.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0074}
+\def\TCDesignRef{M2 design: Diagnostics and Limits}
+\def\TCFeatureRef{Source, string, list, context, diagnostic, and runtime limits}
+\def\TCTestTechnique{At-limit and first-over-limit boundary analysis.}
+\def\TCPreconditions{Limits are initialized from defaults then narrowed.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Later subsystems add their separately owned limits.}
+\def\TCInputData{Each M2 collection at its limit and one unit beyond.}
+\def\TCInitialState{No resource is allocated.}
+\def\TCProcedure{Exercise source bytes, string bytes, list items, variables,
+diagnostics, fake expectations, and context runtime calls at both boundaries.}
+\def\TCExpectedResult{At-limit input succeeds; the first excess returns the
+resource result before semantic state changes.}
+\def\TCPostConditions{Every at-limit object is released.}
+\TCTemplate
+\end{document}

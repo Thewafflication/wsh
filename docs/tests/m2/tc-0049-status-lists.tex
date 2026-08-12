@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0049}
+\def\TCTitle{Ordered unsigned status lists and truth}
+\def\TCPurpose{Verify the M2 status foundation for WSH-REQ-0049.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0049}
+\def\TCDesignRef{M2 design: Values, Variables, and Status}
+\def\TCFeatureRef{Status builder and immutable status-list interfaces}
+\def\TCTestTechnique{Boundary analysis and decision-table testing.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Command execution is outside M2.}
+\def\TCInputData{Empty, all-zero, mixed, and UINT32-MAX status lists.}
+\def\TCInitialState{A new empty status builder.}
+\def\TCProcedure{Publish each list and inspect order, truth, and last value.}
+\def\TCExpectedResult{Only nonempty all-zero lists succeed; every unsigned
+value is retained in order; empty last access is rejected.}
+\def\TCPostConditions{Every builder and status list is destroyed.}
+\TCTemplate
+\end{document}

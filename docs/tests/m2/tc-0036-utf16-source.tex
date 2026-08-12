@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0036}
+\def\TCTitle{BOM-marked UTF-16 source}
+\def\TCPurpose{Verify BOM-marked legacy source for WSH-REQ-0036.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0036}
+\def\TCDesignRef{M2 design: Source and Unicode}
+\def\TCFeatureRef{UTF-16LE and UTF-16BE source decoding}
+\def\TCTestTechnique{Encoding equivalence partitions and malformed input.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{A BOM is required for UTF-16 source.}
+\def\TCInputData{Equivalent LE and BE source, surrogate pairs, odd byte
+counts, and unpaired surrogates.}
+\def\TCInitialState{No source buffer exists.}
+\def\TCProcedure{Decode each byte sequence and compare normalized UTF-8.}
+\def\TCExpectedResult{Valid LE and BE inputs produce byte-identical internal
+text and correct BOM kinds; malformed inputs return encoding errors.}
+\def\TCPostConditions{Every successful source buffer is destroyed.}
+\TCTemplate
+\end{document}

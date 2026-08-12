@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0035}
+\def\TCTitle{Canonical strict UTF-8 source}
+\def\TCPurpose{Verify the source-layer portion of WSH-REQ-0035.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0035}
+\def\TCDesignRef{M2 design: Source and Unicode}
+\def\TCFeatureRef{Source BOM detection and UTF-8 decoding}
+\def\TCTestTechnique{Syntax-oriented positive and negative partitions.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Console input is outside M2.}
+\def\TCInputData{BOM-less UTF-8, leading UTF-8 BOM, embedded U+FEFF,
+U+0000, and BOM-less UTF-16-looking bytes.}
+\def\TCInitialState{No source buffer exists.}
+\def\TCProcedure{Decode each input and inspect BOM and normalized text.}
+\def\TCExpectedResult{Canonical and leading-BOM UTF-8 decode identically;
+only a leading BOM is discarded; invalid canonical input is rejected.}
+\def\TCPostConditions{Every successful source buffer is destroyed.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,27 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0007}
+\def\TCTitle{Immutable ordered flat Unicode values}
+\def\TCPurpose{Verify the M2 value representation for WSH-REQ-0007.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0007}
+\def\TCDesignRef{M2 design: Values, Variables, and Status}
+\def\TCFeatureRef{Portable core value and value-builder interfaces}
+\def\TCTestTechnique{Equivalence partitioning and boundary analysis.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{The caller does not mutate an opaque published object.}
+\def\TCInputData{Empty, ASCII, and supplementary-character strings.}
+\def\TCInitialState{A new empty builder with default limits.}
+\def\TCProcedure{\begin{enumerate}
+\item Append the inputs, mutate the caller-owned source copy, and publish.
+\item Inspect count, ordering, byte-exact elements, and a deep clone.
+\end{enumerate}}
+\def\TCExpectedResult{The immutable value retains three ordered string
+elements, including empty and supplementary text, independent of caller
+storage. No nested-value operation exists.}
+\def\TCPostConditions{All builders, values, and clones are released.}
+\TCTemplate
+\end{document}

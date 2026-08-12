@@ -1,0 +1,94 @@
+name: M2 Portable Core
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64 Debug
+            preset: x64-debug
+            configuration: Debug
+            build_directory: out/build/x64-debug
+            artifact_name: m2-x64-debug
+          - name: x64 Release
+            preset: x64-release
+            configuration: Release
+            build_directory: out/build/x64-release
+            artifact_name: m2-x64-release
+          - name: x86 Debug
+            preset: x86-debug
+            configuration: Debug
+            build_directory: out/build/x86-debug
+            artifact_name: m2-x86-debug
+    env:
+      DOXYGEN_URL: >-
+        https://www.doxygen.nl/files/doxygen-1.14.0.windows.x64.bin.zip
+      DOXYGEN_SHA256: >-
+        3843742c604e145dab26f74ebd386af0656bc2feb6f834c12c1abb7b3c019d8b
+    steps:
+      - name: Check out source and WSP
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install checksum-pinned Doxygen
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'doxygen-1.14.0.zip'
+          $destination = Join-Path $env:GITHUB_WORKSPACE `
+              'out/tools/doxygen/bin'
+          Invoke-WebRequest -UseBasicParsing -Uri $env:DOXYGEN_URL `
+              -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($actual -ne $env:DOXYGEN_SHA256) {
+              throw "Doxygen SHA-256 mismatch: $actual"
+          }
+          New-Item -ItemType Directory -Force -Path $destination |
+              Out-Null
+          Expand-Archive -LiteralPath $archive `
+              -DestinationPath $destination
+          & (Join-Path $destination 'doxygen.exe') --version
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset '${{ matrix.preset }}'
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset '${{ matrix.preset }}'
+
+      - name: Run CTest
+        shell: pwsh
+        run: ctest --preset '${{ matrix.preset }}'
+
+      - name: Upload controlled evidence and test logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.build_directory }}/test-evidence/${{ matrix.configuration }}
+            ${{ matrix.build_directory }}/Testing/Temporary/LastTest.log
+            ${{ matrix.build_directory }}/Testing/Temporary/LastTestsFailed.log
+            out/doxygen/m2
+          if-no-files-found: warn
+          retention-days: 14

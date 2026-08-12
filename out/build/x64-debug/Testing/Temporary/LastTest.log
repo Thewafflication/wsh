@@ -1,10 +1,10 @@
-Start testing: Aug 10 00:31 Central Daylight Time
+Start testing: Aug 12 01:08 Central Daylight Time
 ----------------------------------------------------------
 1/2 Testing: version-smoke
 1/2 Test: version-smoke
 Command: "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Debug/wsh.exe" "--version"
 Directory: C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests
-"version-smoke" start time: Aug 10 00:31 Central Daylight Time
+"version-smoke" start time: Aug 12 01:08 Central Daylight Time
 Output:
 ----------------------------------------------------------
 =================================================================
@@ -16,11 +16,11 @@ Dependencies:
   wsh embedding ABI 1
   kernel32 5.0.2195.1 (Windows system library)
 <end of output>
-Test time =   0.02 sec
+Test time =   0.09 sec
 ----------------------------------------------------------
 Test Pass Reason:
 Required regular expression found. Regex=[Waughtal Shell.*Version 1\.0\.0]
-"version-smoke" end time: Aug 10 00:31 Central Daylight Time
+"version-smoke" end time: Aug 12 01:08 Central Daylight Time
 "version-smoke" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -28,7 +28,7 @@ Required regular expression found. Regex=[Waughtal Shell.*Version 1\.0\.0]
 2/2 Test: print-abi-smoke
 Command: "C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/Debug/wsh.exe" "--print-abi"
 Directory: C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests
-"print-abi-smoke" start time: Aug 10 00:31 Central Daylight Time
+"print-abi-smoke" start time: Aug 12 01:08 Central Daylight Time
 Output:
 ----------------------------------------------------------
 wsh embedding ABI 1
@@ -37,8 +37,8 @@ Test time =   0.02 sec
 ----------------------------------------------------------
 Test Pass Reason:
 Required regular expression found. Regex=[wsh embedding ABI 1]
-"print-abi-smoke" end time: Aug 10 00:31 Central Daylight Time
+"print-abi-smoke" end time: Aug 12 01:08 Central Daylight Time
 "print-abi-smoke" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Aug 10 00:31 Central Daylight Time
+End testing: Aug 12 01:08 Central Daylight Time

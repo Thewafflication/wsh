@@ -96,6 +96,23 @@ are still validated before use.
 | Resource exhaustion | Limits on source, token, AST, expansion, recursion, glob results, captures, processes, history, diagnostics, and time | Deliberately authorized external programs can consume resources |
 | Dependency/release compromise | WPM pinning, digests, provenance, signing, malware scan, reproducible identity, retained evidence | Windows 2000 lacks modern platform mitigations and trust services |
 
+### 6.1 M2 Portable-Core Control Record
+
+M2 implements the malicious-source and resource-exhaustion controls that can
+be enforced before grammar or an operating-system effect exists. The source
+layer applies raw and decoded size bounds before commit; rejects truncated,
+overlong, surrogate, out-of-range, U+0000, and noncharacter text; and retains
+original-byte and Unicode-scalar positions. Immutable string/list builders,
+contexts, diagnostics, variables, status lists, and fake-runtime expectations
+use checked arithmetic, explicit allocator ownership, configured limits, and
+allocate-copy-commit failure behavior.
+
+`TC-0018`, `TC-0024`, `TC-0034` through `TC-0037`, `TC-0070`, `TC-0074`, and
+`TC-0075` provide the M2 malformed, boundary, failure, isolation, concurrency,
+and no-process-global-mutation evidence. Parser depth, expansion, capture,
+process, history, handle, child, and policy controls remain assigned to their
+owning milestones; M2 does not report them as implemented.
+
 ## 7. Secure Failure and Recovery
 
 Parsing and launch preparation fail before effect. Partially started pipelines

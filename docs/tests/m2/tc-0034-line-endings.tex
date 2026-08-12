@@ -1,0 +1,28 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0034}
+\def\TCTitle{Equivalent source line endings and positions}
+\def\TCPurpose{Verify the source-layer portion of WSH-REQ-0034.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0034}
+\def\TCDesignRef{M2 design: Source and Unicode}
+\def\TCFeatureRef{Decoded source and source-span interfaces}
+\def\TCTestTechnique{Equivalence partitioning for CRLF, LF, CR, and EOF.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Grammar use of normalized LF is allocated to M3.}
+\def\TCInputData{Mixed CRLF, LF, lone CR, empty, terminated, and final
+unterminated source.}
+\def\TCInitialState{No source buffer exists.}
+\def\TCProcedure{\begin{enumerate}
+\item Decode each line-ending partition.
+\item Compare normalized bytes, line count, and original-byte positions.
+\end{enumerate}}
+\def\TCExpectedResult{Every terminator becomes one LF with identical logical
+line behavior; original offsets remain correct; an unterminated final line is
+retained.}
+\def\TCPostConditions{Every source buffer is destroyed.}
+\TCTemplate
+\end{document}

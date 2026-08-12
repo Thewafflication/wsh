@@ -1,0 +1,29 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0070}
+\def\TCTitle{Context isolation, fake runtime, and concurrency}
+\def\TCPurpose{Verify the M2-owned context portion of WSH-REQ-0070.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0070}
+\def\TCDesignRef{ADR-0002, ADR-0005, and M2 runtime design}
+\def\TCFeatureRef{Context ownership and deterministic fake runtime}
+\def\TCTestTechnique{Concurrency, state isolation, and mock-object testing.}
+\def\TCPreconditions{The Windows test host can create two worker threads.}
+\def\TCEnvironment{Native Windows x86 or x64 Debug/Release host.}
+\def\TCAssumptions{Each context is used by only one thread at a time.}
+\def\TCInputData{Same variable name with different values and one scripted
+runtime operation.}
+\def\TCInitialState{Two independent contexts and one expectation queue.}
+\def\TCProcedure{\begin{enumerate}
+\item Verify byte-exact scripted output, status, ordering, and mismatch.
+\item Set different state in two contexts and inspect isolation.
+\item Run independent context update loops on two concurrent threads.
+\end{enumerate}}
+\def\TCExpectedResult{The fake performs no external effect and consumes
+expectations deterministically; contexts do not share state; both threads
+complete successfully.}
+\def\TCPostConditions{Threads join and every context/runtime owner is released.}
+\TCTemplate
+\end{document}

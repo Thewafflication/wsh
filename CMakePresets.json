@@ -14,7 +14,6 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/x64-debug",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
       }
     },
@@ -26,7 +25,6 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/x64-release",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
       }
     },
@@ -38,7 +36,6 @@
       "architecture": "Win32",
       "binaryDir": "${sourceDir}/out/build/x86-debug",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
       }
     }
@@ -64,6 +61,22 @@
     {
       "name": "x64-debug",
       "configurePreset": "x64-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-debug",
+      "configurePreset": "x86-debug",
       "configuration": "Debug",
       "output": {
         "outputOnFailure": true

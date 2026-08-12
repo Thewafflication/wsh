@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0037}
+\def\TCTitle{Supplementary Unicode preservation}
+\def\TCPurpose{Verify M2 boundaries allocated from WSH-REQ-0037.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0037}
+\def\TCDesignRef{M2 design: Source and Unicode}
+\def\TCFeatureRef{Source, immutable values, and UTF conversion}
+\def\TCTestTechnique{Boundary-value round trip at U+10000 and U+10FFFF.}
+\def\TCPreconditions{The portable-core test executable is built.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{File, environment, and child launch are later work.}
+\def\TCInputData{Valid lower/upper supplementary scalars and emoji.}
+\def\TCInitialState{No source, value, or conversion buffer exists.}
+\def\TCProcedure{Round-trip the inputs through source positions, immutable
+values, UTF-16 surrogate pairs, and back to UTF-8.}
+\def\TCExpectedResult{Each supplementary character remains byte exact and
+counts as one scalar.}
+\def\TCPostConditions{Every owned object and buffer is released.}
+\TCTemplate
+\end{document}

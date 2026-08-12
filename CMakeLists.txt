@@ -16,6 +16,12 @@ set(WSH_EMBEDDING_ABI 1)
 add_library(wsh_core STATIC src/portable_core.c)
 target_include_directories(wsh_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
+if(MSVC)
+    target_compile_options(wsh_core PRIVATE /W4 /WX)
+else()
+    target_compile_options(wsh_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_library(wsh_static STATIC src/wshlib.c)
 add_library(wsh_shared SHARED src/wshlib.c)
 

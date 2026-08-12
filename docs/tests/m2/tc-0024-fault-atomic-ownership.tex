@@ -1,0 +1,29 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0024}
+\def\TCTitle{Fault-atomic ownership and leak sweep}
+\def\TCPurpose{Verify M2 memory paths allocated from WSH-REQ-0024.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0024}
+\def\TCDesignRef{M2 design: Interfaces and Ownership}
+\def\TCFeatureRef{All portable-core owning objects and builders}
+\def\TCTestTechnique{Fault injection and transition coverage.}
+\def\TCPreconditions{The tracking allocator rejects a selected call.}
+\def\TCEnvironment{Any supported C99 host and Debug configuration.}
+\def\TCAssumptions{Allocator counters themselves do not allocate.}
+\def\TCInputData{Every allocation ordinal from one through first success.}
+\def\TCInitialState{Zero outstanding tracked allocations.}
+\def\TCProcedure{\begin{enumerate}
+\item Build a source/context/value/diagnostic/fake-runtime object graph while
+rejecting each allocation ordinal in turn.
+\item Destroy every returned owner and check the outstanding count.
+\item Fail a builder growth and then publish its prior content.
+\end{enumerate}}
+\def\TCExpectedResult{Every failure returns a controlled result, no partial
+semantic update occurs, a later no-fault attempt passes, and each iteration
+returns to zero outstanding allocations.}
+\def\TCPostConditions{Zero tracked allocations remain.}
+\TCTemplate
+\end{document}

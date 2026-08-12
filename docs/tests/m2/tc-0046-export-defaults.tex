@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0046}
+\def\TCTitle{Private assignment and exported import metadata}
+\def\TCPurpose{Verify the M2 metadata portion of WSH-REQ-0046.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0046}
+\def\TCDesignRef{M2 design: Values, Variables, and Status}
+\def\TCFeatureRef{Context variable and export interfaces}
+\def\TCTestTechnique{State-transition testing.}
+\def\TCPreconditions{A new context and immutable scalar value exist.}
+\def\TCEnvironment{Any supported C99 host and configuration.}
+\def\TCAssumptions{Environment block emission is outside M2.}
+\def\TCInputData{New assignment, explicit export, reassignment, and import.}
+\def\TCInitialState{The context has no variables.}
+\def\TCProcedure{Apply each transition and inspect export metadata.}
+\def\TCExpectedResult{A new assignment is private, explicit export is
+retained across reassignment, and an imported variable begins exported.}
+\def\TCPostConditions{The context owns then releases cloned values.}
+\TCTemplate
+\end{document}

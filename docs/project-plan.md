@@ -251,14 +251,16 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Use the accepted M0 baseline as the governing source of requirements and
-   compatibility decisions.
-2. Proceed with the M1 toolchain and repository skeleton based on the approved
-   baseline.
-3. Retain the M0 review record, traceability inventory, and accepted
-   tailoring decisions as the controlling evidence for all later milestones.
-4. Re-estimate M1 from the accepted baseline and continue only with the
-   approved toolchain and project-process controls.
+1. Use the M2 portable core, controlled specifications, and abstract fake
+   runtime as the sole foundation for M3 lexer/parser work.
+2. Keep M3 free of evaluator, filesystem, environment, console, registry, and
+   process effects; parsing must operate only on complete decoded source.
+3. Retain the M0/M1 retrospective logs and M2 evidence. Close the historical
+   M1 dependency, x86-oldest-host, PE/import, DWARF, and release-PDF evidence
+   gaps before a later release claim depends on them.
+4. Use M2's strict Unicode decoder, source spans, immutable builders,
+   allocator fault injection, and resource limits rather than creating parser-
+   local alternatives.
 
 ## References
 
