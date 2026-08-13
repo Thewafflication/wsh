@@ -1,3 +1,0 @@
-version-smoke 2 0.0452053
-print-abi-smoke 3 0.00613613
----

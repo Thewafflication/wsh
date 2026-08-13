@@ -45,6 +45,7 @@ the unavailable independent reviewer but do not create release approval
 | First hosted M2 workflow used a stale Doxygen checksum | Medium | Resolve the current official GitHub release asset and report/verify its version |
 | Official HTML release discovery failed on the hosted image | Medium | Use Doxygen's GitHub latest-release API and exact Windows asset metadata |
 | Doxygen 1.17 version output includes a source hash suffix | Medium | Parse and compare the leading semantic version while logging the complete output |
+| Tracked generated x64 cache named a developer-local Visual Studio 18 instance | High | Remove all ignored `out/` artifacts from Git tracking; preserve them only as local/Actions evidence |
 
 No unresolved M3 defect remains. Dynamic latest-Doxygen selection intentionally
 trades byte-for-byte tool reproducibility for avoiding stale upstream archive

@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/cmake_install.cmake",
-		"C:/Users/jmwau/source/repos/wsh/out/build/x64-debug/tests/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

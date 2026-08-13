@@ -18,7 +18,7 @@
    source-equivalence, limit, and deterministic fuzz tests.
 5. Integrated traceability, Doxygen/source quality, controlled TeX evidence,
    and evidence validation into CTest while preserving the M2 gates.
-6. Resolved eight review findings, including allocation-failure dereference and
+6. Resolved nine review findings, including allocation-failure dereference and
    non-ASCII formatter defects, and reran the complete matrix.
 7. Updated DFS, compatibility verification, project handoff, milestone status,
    review, and closeout records.
@@ -47,5 +47,7 @@ symbols per matrix job.
 
 The pre-existing dirty `wsp` submodule working tree was not edited or staged.
 Generated `out/` verification trees remain local and are not publication
-inputs. M4 is the next implementation milestone; M1's historical release-
+inputs; 137 accidentally tracked generated x64 entries were removed from the
+Git index without deleting the local tree. M4 is the next implementation
+milestone; M1's historical release-
 evidence gaps remain separate release follow-up.

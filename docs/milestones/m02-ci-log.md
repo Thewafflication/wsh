@@ -79,3 +79,14 @@ GitHub latest-release API, download that named asset, print `doxygen
 HTML download-page approach was rejected after the hosted image could not
 complete it reliably. This intentionally follows the requested current-release
 policy; Doxygen is not byte-reproducible across future CI runs.
+
+## Hosted x64 Cache Correction
+
+The next hosted run passed current-Doxygen installation in all three jobs;
+x86 Debug and x64 Release completed successfully. x64 Debug then exposed an
+old generated `out/build/x64-debug` tree that had been accidentally tracked
+despite `/out/` being ignored. Its `CMakeCache.txt` named a developer-local
+Visual Studio 18 instance, so a clean `windows-2022` checkout could not
+configure that preset. All 137 generated `out/` entries were removed from the
+Git index while local build/evidence files were retained. Future checkouts now
+configure every preset from source and the existing `/out/` ignore rule.
