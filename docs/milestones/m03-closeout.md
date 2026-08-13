@@ -62,7 +62,7 @@ isolated under each build tree at
 | Controlled TC specifications | 15 files, 348 lines |
 | Requirement allocation records | 21 files, 130 lines |
 | PowerShell evidence/quality runners | 17 files, 237 lines |
-| M3 review findings | 7 resolved, 0 open |
+| M3 review findings | 8 resolved, 0 open |
 | M3 controlled functional executions | 45 Pass |
 | Total final-matrix CTest executions | 111 Pass |
 

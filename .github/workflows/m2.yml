@@ -47,30 +47,38 @@ jobs:
 
       - name: Install current Doxygen release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $downloadPage = 'https://www.doxygen.nl/download.html'
-          $page = Invoke-WebRequest -UseBasicParsing -Uri $downloadPage
-          $pattern = 'doxygen-(?<version>\d+\.\d+\.\d+)' +
-              '\.windows\.x64\.bin\.zip'
-          $releases = [regex]::Matches($page.Content, $pattern) |
-              ForEach-Object {
-                  [pscustomobject]@{
-                      Version = [version]$_.Groups['version'].Value
-                      File = $_.Value
-                  }
-              } |
-              Sort-Object Version -Descending -Unique
-          if (-not $releases) {
-              throw 'No Windows x64 Doxygen release found on download page'
+          $headers = @{
+              Accept = 'application/vnd.github+json'
+              'User-Agent' = 'wsh-windows-ci'
           }
-          $release = $releases[0]
-          $doxygenUrl = 'https://www.doxygen.nl/files/{0}' -f `
-              $release.File
-          $archive = Join-Path $env:RUNNER_TEMP $release.File
+          if ($env:GH_TOKEN) {
+              $headers.Authorization = "Bearer $env:GH_TOKEN"
+          }
+          $releaseUri =
+              'https://api.github.com/repos/doxygen/doxygen/releases/latest'
+          $release = Invoke-RestMethod -Headers $headers -Uri $releaseUri
+          $pattern = '^doxygen-(?<version>\d+\.\d+\.\d+)' +
+              '\.windows\.x64\.bin\.zip$'
+          $assets = @($release.assets | Where-Object {
+              $_.name -match $pattern
+          })
+          if ($assets.Count -ne 1) {
+              throw "Expected one Windows x64 Doxygen asset; found " +
+                  $assets.Count
+          }
+          $asset = $assets[0]
+          $assetMatch = [regex]::Match($asset.name, $pattern)
+          $selectedVersion =
+              [version]$assetMatch.Groups['version'].Value
+          $archive = Join-Path $env:RUNNER_TEMP $asset.name
           $destination = Join-Path $env:GITHUB_WORKSPACE `
               'out/tools/doxygen/bin'
-          Write-Host "Downloading Doxygen $($release.Version)"
-          Invoke-WebRequest -UseBasicParsing -Uri $doxygenUrl `
+          Write-Host "Downloading Doxygen $selectedVersion"
+          Invoke-WebRequest -UseBasicParsing `
+              -Uri $asset.browser_download_url `
               -OutFile $archive
           New-Item -ItemType Directory -Force -Path $destination |
               Out-Null
@@ -86,7 +94,7 @@ jobs:
               throw "Unrecognized Doxygen version: $reportedOutput"
           }
           $reportedVersion = [version]$reportedMatch.Value
-          if ([version]$reportedVersion -ne $release.Version) {
+          if ($reportedVersion -ne $selectedVersion) {
               throw "Doxygen version mismatch: $reportedOutput"
           }
 

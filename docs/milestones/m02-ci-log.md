@@ -28,9 +28,9 @@ evidence-validation, and inherited version/ABI smoke gates.
 - Workflow permissions are read-only and checkout credentials are not
   persisted.
 - GitHub-authored actions are pinned to full commit identifiers.
-- The current Doxygen Windows x64 release is resolved from the official Doxygen
-  download page. The workflow prints the selected and executable-reported
-  versions and rejects a mismatch.
+- The current Doxygen Windows x64 release is resolved through Doxygen's
+  official GitHub latest-release API. The workflow prints the selected and
+  executable-reported versions and rejects a mismatch.
 - Matrix jobs do not fail fast, so one architecture failure does not suppress
   results from the others.
 - Controlled TeX evidence, Doxygen output, CTest logs, native binaries, DLLs,
@@ -73,8 +73,9 @@ configuration explicitly selected the VS 2022 instance. The pinned
 The first hosted execution exposed that the Doxygen 1.14.0 URL no longer
 returned the archive whose historical checksum had been recorded, so the
 bootstrap stopped before CMake configuration. On 2026-08-12 the workflow was
-changed to resolve the current Windows x64 release from Doxygen's official
-download page, download that named release from the official files endpoint,
-print `doxygen --version`, and verify that the executable reports the selected
-version. This intentionally follows the requested current-release policy; the
-tradeoff is that Doxygen is no longer byte-reproducible across future CI runs.
+changed to resolve the current Windows x64 asset from Doxygen's official
+GitHub latest-release API, download that named asset, print `doxygen
+--version`, and verify that the executable reports the selected version. The
+HTML download-page approach was rejected after the hosted image could not
+complete it reliably. This intentionally follows the requested current-release
+policy; Doxygen is not byte-reproducible across future CI runs.

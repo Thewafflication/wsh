@@ -18,7 +18,7 @@
    source-equivalence, limit, and deterministic fuzz tests.
 5. Integrated traceability, Doxygen/source quality, controlled TeX evidence,
    and evidence validation into CTest while preserving the M2 gates.
-6. Resolved seven review findings, including allocation-failure dereference and
+6. Resolved eight review findings, including allocation-failure dereference and
    non-ASCII formatter defects, and reran the complete matrix.
 7. Updated DFS, compatibility verification, project handoff, milestone status,
    review, and closeout records.
@@ -36,11 +36,12 @@
 ## CI Maintenance Logged with M3
 
 The GitHub Actions Windows workflow now discovers the newest official Doxygen
-Windows x64 archive from the upstream download page, downloads it, prints the
-installed `doxygen --version`, and rejects a mismatch between the selected and
-reported versions. This replaces the stale archive/checksum pair that failed
-the first hosted x64 run. The workflow also runs the M3 gates and retains M2/
-M3 evidence, Doxygen output, executables, DLLs, and symbols per matrix job.
+Windows x64 asset through Doxygen's GitHub latest-release API, downloads it,
+prints the installed `doxygen --version`, and rejects a mismatch between the
+selected and reported versions. This replaces the stale archive/checksum pair
+and an unreliable HTML-page discovery attempt. The workflow also runs the M3
+gates and retains M2/M3 evidence, Doxygen output, executables, DLLs, and
+symbols per matrix job.
 
 ## Preservation and Follow-up
 

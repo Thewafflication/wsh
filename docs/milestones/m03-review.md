@@ -42,7 +42,8 @@ the unavailable independent reviewer but do not create release approval
 | Formatter appended one byte at a time for non-ASCII text | High | Append complete UTF-8 scalar sequences; source-equivalence tests pass |
 | One parser-test source line exceeded 80 columns | Low | Wrapped the assertion; source-quality and Doxygen rerun pass |
 | M2/M3 wrappers shared one trace-discovery directory | Medium | Segregated them under `tests/m2` and `tests/m3`; both gates pass |
-| First hosted M2 workflow used a stale Doxygen checksum | Medium | Resolve the current official release and report/verify its version |
+| First hosted M2 workflow used a stale Doxygen checksum | Medium | Resolve the current official GitHub release asset and report/verify its version |
+| Official HTML release discovery failed on the hosted image | Medium | Use Doxygen's GitHub latest-release API and exact Windows asset metadata |
 | Doxygen 1.17 version output includes a source hash suffix | Medium | Parse and compare the leading semantic version while logging the complete output |
 
 No unresolved M3 defect remains. Dynamic latest-Doxygen selection intentionally
