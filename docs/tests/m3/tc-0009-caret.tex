@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0009}
+\def\TCTitle{Explicit and free-caret syntax}
+\def\TCPurpose{Verify M3 caret construction for WSH-REQ-0009.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0009}
+\def\TCDesignRef{M3 design: Lexer and Parser}
+\def\TCFeatureRef{Concatenation AST nodes}
+\def\TCTestTechnique{Syntax testing and boundary analysis.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{Evaluation cardinality belongs to M4.}
+\def\TCInputData{Explicit carets and adjacent word-producing forms.}
+\def\TCInitialState{No parser objects exist.}
+\def\TCProcedure{Parse equivalent explicit and free forms and inspect nodes.}
+\def\TCExpectedResult{Both forms produce ordered concat nodes; whitespace
+prevents free concatenation and a missing right operand is rejected.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

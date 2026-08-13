@@ -113,6 +113,24 @@ and no-process-global-mutation evidence. Parser depth, expansion, capture,
 process, history, handle, child, and policy controls remain assigned to their
 owning milestones; M2 does not report them as implemented.
 
+### 6.2 M3 Parser Control Record
+
+M3 implements the malicious-source controls at the grammar boundary. The
+lexer consumes only a decoded `wsh_source`; the recursive-descent parser owns
+an immutable AST and has no context, runtime, filesystem, environment,
+console, registry, or process capability. Tokens, AST nodes, recursion, and
+diagnostics have caller-configurable ceilings. A complete root is published
+only after the entire input is accepted; malformed and continuable input
+publish a diagnostic and no root.
+
+`TC-0023`, `TC-0082`, `TC-0083`, `TC-0084`, and `TC-0085` cover malformed and
+incomplete input, every allocation-failure ordinal through the first complete
+object graph, source-encoding equivalence, explicit parser limits, and 4,096
+deterministically replayed generated inputs. `TC-0010`, `TC-0051`, and
+`TC-0052` inspect the parser boundary and prove command and process
+substitutions remain inert syntax. Evaluation, capture, named pipes, launch,
+and other effects remain assigned to M4 and M5.
+
 ## 7. Secure Failure and Recovery
 
 Parsing and launch preparation fail before effect. Partially started pipelines

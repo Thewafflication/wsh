@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0083}
+\def\TCTitle{Encoding line-ending and supplementary AST equivalence}
+\def\TCPurpose{Verify WSH-REQ-0034, 0035, 0036, and 0037 in M3.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0034, WSH-REQ-0035, WSH-REQ-0036,
+WSH-REQ-0037}
+\def\TCDesignRef{M3 design: Parser and AST}
+\def\TCFeatureRef{Normalized source spans and canonical AST formatter}
+\def\TCTestTechnique{Equivalence partitioning by encoding and line ending.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{M2 performs strict decoding and normalization.}
+\def\TCInputData{UTF-8/BOM, UTF-16LE/BE, CRLF/LF/CR, non-BMP, final line.}
+\def\TCInitialState{No parser objects exist.}
+\def\TCProcedure{Decode and parse equivalent byte sources; compare AST text.}
+\def\TCExpectedResult{All variants complete with identical normalized AST
+meaning and supplementary text retained.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,24 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0085}
+\def\TCTitle{Deterministic malformed and fuzz parser corpus}
+\def\TCPurpose{Verify WSH-REQ-0023 and 0075 against hostile syntax.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0023, WSH-REQ-0075}
+\def\TCDesignRef{M3 design: Compatibility and Security Review}
+\def\TCFeatureRef{Side-effect-free lexer parser and canonical AST}
+\def\TCTestTechnique{Deterministic grammar fuzzing and metamorphic replay.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{The fixed generator seed and alphabet are controlled.}
+\def\TCInputData{Thousands of bounded generated ASCII grammar strings.}
+\def\TCInitialState{No context, runtime, or parser owner exists.}
+\def\TCProcedure{Parse every input twice and compare status, diagnostics,
+and complete AST output; destroy every owner.}
+\def\TCExpectedResult{No crash, leak, hang, effect, partial root, or replay
+difference occurs for any generated input.}
+\def\TCPostConditions{All owners are destroyed and global observations match.}
+\TCTemplate
+\end{document}

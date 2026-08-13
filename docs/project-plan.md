@@ -251,16 +251,17 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Use the M2 portable core, controlled specifications, and abstract fake
-   runtime as the sole foundation for M3 lexer/parser work.
-2. Keep M3 free of evaluator, filesystem, environment, console, registry, and
-   process effects; parsing must operate only on complete decoded source.
+1. Use the M2 portable core and M3 immutable AST as the sole foundation for M4
+   evaluation, variables, expansion, functions, and control-flow work.
+2. Keep M4 deterministic behind the abstract fake runtime; real filesystem,
+   environment, console, registry, handle, pipeline, and process effects
+   remain outside the evaluator milestone.
 3. Retain the M0/M1 retrospective logs and M2 evidence. Close the historical
    M1 dependency, x86-oldest-host, PE/import, DWARF, and release-PDF evidence
    gaps before a later release claim depends on them.
-4. Use M2's strict Unicode decoder, source spans, immutable builders,
-   allocator fault injection, and resource limits rather than creating parser-
-   local alternatives.
+4. Preserve M3's syntax-status partition, source spans, AST ownership,
+   allocation-failure behavior, and resource limits rather than reparsing text
+   or introducing evaluator-local syntax.
 
 ## References
 

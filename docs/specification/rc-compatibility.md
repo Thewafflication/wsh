@@ -85,4 +85,15 @@ Every language change review shall answer:
 4. Does the change alter an accepted 1.0 script meaning or configuration?
 5. Which requirements, ADRs, tests, examples, and compatibility rows change?
 
+## 4. M3 Grammar Verification Record
+
+M3 did not change an accepted compatibility disposition. Its lexer/parser
+implements and verifies the syntax-bearing rows for command lists, comments,
+apostrophe quotation, variables and subscripts, lists, carets, substitution,
+redirection, pipelines, logical/unary operators, blocks, functions, and
+structured control flow. `TC-0008` through `TC-0085` provide the applicable
+controlled conformance, malformed-input, ownership, limits, source-
+equivalence, and fuzz evidence. Runtime meaning remains assigned to M4 and M5;
+an accepted M3 parse is not an execution-compatibility claim.
+
 [rc]: https://9fans.github.io/plan9port/man/man1/rc.html

@@ -6,11 +6,28 @@ target_include_directories(
 )
 target_link_libraries(portable-core-tests PRIVATE wsh_core)
 
+add_executable(parser-tests parser_tests.c)
+target_include_directories(
+    parser-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(parser-tests PRIVATE wsh_core)
+
 if(MSVC)
     target_compile_options(portable-core-tests PRIVATE /W4 /WX)
+    target_compile_options(parser-tests PRIVATE /W4 /WX)
 else()
     target_compile_options(
         portable-core-tests
+        PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Werror
+    )
+    target_compile_options(
+        parser-tests
         PRIVATE
             -Wall
             -Wextra
@@ -71,7 +88,7 @@ add_test(
         -RepositoryRoot "${CMAKE_SOURCE_DIR}"
         -RequirementsPath "docs/requirements/m2"
         -TestSpecificationsPath "docs/tests/m2"
-        -TestImplementationsPath "tests"
+        -TestImplementationsPath "tests/m2"
 )
 set_tests_properties(m2-traceability PROPERTIES LABELS "M2;quality")
 
@@ -101,7 +118,7 @@ foreach(test_id IN LISTS WSH_M2_TEST_IDS)
             "${WSH_POWERSHELL_EXECUTABLE}"
             -NoProfile
             -File
-                "${CMAKE_CURRENT_SOURCE_DIR}/run-tc-${test_id}-m2.ps1"
+                "${CMAKE_CURRENT_SOURCE_DIR}/m2/run-tc-${test_id}-m2.ps1"
             -TestCase "TC-${test_id}"
             -Executable "$<TARGET_FILE:portable-core-tests>"
             -EvidenceDirectory
@@ -135,4 +152,97 @@ set_tests_properties(
     PROPERTIES
         DEPENDS "${WSH_M2_CTEST_NAMES}"
         LABELS "M2;quality"
+)
+
+set(WSH_M3_TEST_IDS
+    0008
+    0009
+    0010
+    0014
+    0015
+    0016
+    0017
+    0023
+    0038
+    0051
+    0052
+    0082
+    0083
+    0084
+    0085
+)
+
+add_test(
+    NAME m3-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m3"
+        -TestSpecificationsPath "docs/tests/m3"
+        -TestImplementationsPath "tests/m3"
+)
+set_tests_properties(m3-traceability PROPERTIES LABELS "M3;quality")
+
+add_test(
+    NAME m3-source-quality
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m3-source-quality.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+)
+set_tests_properties(
+    m3-source-quality
+    PROPERTIES
+        DEPENDS m3-traceability
+        LABELS "M3;quality"
+)
+
+set(WSH_M3_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M3_TEST_IDS)
+    set(test_name "m3-TC-${test_id}")
+    list(APPEND WSH_M3_CTEST_NAMES "${test_name}")
+    add_test(
+        NAME "${test_name}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File
+                "${CMAKE_CURRENT_SOURCE_DIR}/m3/run-tc-${test_id}-m3.ps1"
+            -TestCase "TC-${test_id}"
+            -Executable "$<TARGET_FILE:parser-tests>"
+            -EvidenceDirectory
+                "${CMAKE_BINARY_DIR}/test-evidence/m3/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain
+                "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
+            -TargetArchitecture "${CMAKE_GENERATOR_PLATFORM}"
+    )
+    set_tests_properties(
+        "${test_name}"
+        PROPERTIES
+            DEPENDS m3-traceability
+            LABELS "M3;controlled"
+    )
+endforeach()
+
+add_test(
+    NAME m3-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory
+            "${CMAKE_BINARY_DIR}/test-evidence/m3/$<CONFIG>/current"
+        -ExpectedCount 15
+)
+set_tests_properties(
+    m3-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M3_CTEST_NAMES}"
+        LABELS "M3;quality"
 )

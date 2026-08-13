@@ -45,13 +45,23 @@ $evidencePath = Join-Path $currentRoot $evidenceName
 $archiveRoot = Join-Path (Split-Path -Parent $currentRoot) 'archive'
 $testDigits = $TestCase.Substring(3)
 $specifications = @(Get-ChildItem -LiteralPath (
-    Join-Path $resolvedRepository 'docs\tests\m2') -File |
+    Join-Path $resolvedRepository 'docs\tests\m3') -File |
     Where-Object { $_.Name -like "tc-$testDigits-*.tex" })
 if ($specifications.Count -ne 1) {
     throw "Expected one specification for $TestCase; found " +
         $specifications.Count
 }
 $specification = $specifications[0]
+$specificationText = Get-Content -LiteralPath $specification.FullName -Raw
+$requirementMatch = [regex]::Match(
+    $specificationText,
+    '\\def\\TCRequirementRef\{(?<references>.*?)\}',
+    [Text.RegularExpressions.RegexOptions]::Singleline)
+if (-not $requirementMatch.Success) {
+    throw "No requirement references found in $($specification.Name)"
+}
+$requirementReferences =
+    ($requirementMatch.Groups['references'].Value -replace '\s+', ' ').Trim()
 
 New-Item -ItemType Directory -Force -Path $currentRoot | Out-Null
 if (Test-Path -LiteralPath $evidencePath) {
@@ -86,12 +96,14 @@ $sourceInputs = @(
     'CMakeLists.txt',
     'CMakePresets.json',
     'include/wsh/core.h',
+    'include/wsh/parser.h',
+    'src/parser.c',
     'src/portable_core.c',
     'tests/CMakeLists.txt',
-    'tests/portable_core_tests.c',
-    'tests/run-m2-test.ps1',
-    "tests/m2/run-tc-$testDigits-m2.ps1",
-    "docs/tests/m2/$($specification.Name)")
+    'tests/parser_tests.c',
+    'tests/run-m3-test.ps1',
+    "tests/m3/run-tc-$testDigits-m3.ps1",
+    "docs/tests/m3/$($specification.Name)")
 $manifestLines = @($sourceInputs | Sort-Object | ForEach-Object {
     $inputPath = Join-Path $resolvedRepository $_
     $inputHash = (Get-FileHash -LiteralPath $inputPath `
@@ -121,7 +133,8 @@ $evidence = @"
 $(ConvertTo-TexText $specificationHash)
 \item[Tested Artifact SHA-256] $(ConvertTo-TexText $artifactHash)
 \item[Source Input Manifest SHA-256] $(ConvertTo-TexText $manifestHash)
-\item[Requirement References] WSH-REQ-$testDigits
+\item[Requirement References]
+$(ConvertTo-TexText $requirementReferences)
 \item[Source Revision] $(ConvertTo-TexText $revision)
 \item[Target Architecture] $(ConvertTo-TexText $TargetArchitecture)
 \item[Runner Architecture] $(ConvertTo-TexText $runnerArchitecture)

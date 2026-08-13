@@ -1,4 +1,4 @@
-name: M2 Portable Core
+name: WSH Windows CI
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m2-${{ github.workflow }}-${{ github.ref }}
+  group: windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,22 +27,17 @@ jobs:
             preset: x64-debug
             configuration: Debug
             build_directory: out/build/x64-debug
-            artifact_name: m2-x64-debug
+            artifact_name: wsh-x64-debug
           - name: x64 Release
             preset: x64-release
             configuration: Release
             build_directory: out/build/x64-release
-            artifact_name: m2-x64-release
+            artifact_name: wsh-x64-release
           - name: x86 Debug
             preset: x86-debug
             configuration: Debug
             build_directory: out/build/x86-debug
-            artifact_name: m2-x86-debug
-    env:
-      DOXYGEN_URL: >-
-        https://www.doxygen.nl/files/doxygen-1.14.0.windows.x64.bin.zip
-      DOXYGEN_SHA256: >-
-        3843742c604e145dab26f74ebd386af0656bc2feb6f834c12c1abb7b3c019d8b
+            artifact_name: wsh-x86-debug
     steps:
       - name: Check out source and WSP
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -50,23 +45,50 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Install checksum-pinned Doxygen
+      - name: Install current Doxygen release
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'doxygen-1.14.0.zip'
+          $downloadPage = 'https://www.doxygen.nl/download.html'
+          $page = Invoke-WebRequest -UseBasicParsing -Uri $downloadPage
+          $pattern = 'doxygen-(?<version>\d+\.\d+\.\d+)' +
+              '\.windows\.x64\.bin\.zip'
+          $releases = [regex]::Matches($page.Content, $pattern) |
+              ForEach-Object {
+                  [pscustomobject]@{
+                      Version = [version]$_.Groups['version'].Value
+                      File = $_.Value
+                  }
+              } |
+              Sort-Object Version -Descending -Unique
+          if (-not $releases) {
+              throw 'No Windows x64 Doxygen release found on download page'
+          }
+          $release = $releases[0]
+          $doxygenUrl = 'https://www.doxygen.nl/files/{0}' -f `
+              $release.File
+          $archive = Join-Path $env:RUNNER_TEMP $release.File
           $destination = Join-Path $env:GITHUB_WORKSPACE `
               'out/tools/doxygen/bin'
-          Invoke-WebRequest -UseBasicParsing -Uri $env:DOXYGEN_URL `
+          Write-Host "Downloading Doxygen $($release.Version)"
+          Invoke-WebRequest -UseBasicParsing -Uri $doxygenUrl `
               -OutFile $archive
-          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash
-          if ($actual -ne $env:DOXYGEN_SHA256) {
-              throw "Doxygen SHA-256 mismatch: $actual"
-          }
           New-Item -ItemType Directory -Force -Path $destination |
               Out-Null
           Expand-Archive -LiteralPath $archive `
               -DestinationPath $destination
-          & (Join-Path $destination 'doxygen.exe') --version
+          $doxygen = Join-Path $destination 'doxygen.exe'
+          $reportedOutput = (& $doxygen --version).Trim()
+          Write-Host "Doxygen version: $reportedOutput"
+          $reportedMatch = [regex]::Match(
+              $reportedOutput,
+              '^\d+\.\d+\.\d+')
+          if (-not $reportedMatch.Success) {
+              throw "Unrecognized Doxygen version: $reportedOutput"
+          }
+          $reportedVersion = [version]$reportedMatch.Value
+          if ([version]$reportedVersion -ne $release.Version) {
+              throw "Doxygen version mismatch: $reportedOutput"
+          }
 
       - name: Configure
         shell: pwsh
@@ -87,8 +109,16 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: |
             ${{ matrix.build_directory }}/test-evidence/${{ matrix.configuration }}
+            ${{ matrix.build_directory }}/test-evidence/m3/${{ matrix.configuration }}
             ${{ matrix.build_directory }}/Testing/Temporary/LastTest.log
             ${{ matrix.build_directory }}/Testing/Temporary/LastTestsFailed.log
+            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wsh.exe
+            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wsh.pdb
+            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wshlib.dll
+            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wshlib.pdb
+            ${{ matrix.build_directory }}/tests/${{ matrix.configuration }}/*-tests.exe
+            ${{ matrix.build_directory }}/tests/${{ matrix.configuration }}/*-tests.pdb
             out/doxygen/m2
+            out/doxygen/m3
           if-no-files-found: warn
           retention-days: 14

@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0084}
+\def\TCTitle{Token AST depth and diagnostic limits}
+\def\TCPurpose{Verify M3 resource allocation of WSH-REQ-0074 and 0075.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0074, WSH-REQ-0075}
+\def\TCDesignRef{M3 design: Limits and Failure Behavior}
+\def\TCFeatureRef{Parser options and pre-allocation ceilings}
+\def\TCTestTechnique{Boundary-value and resource-exhaustion testing.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{M2 independently bounds source bytes.}
+\def\TCInputData{Values below, at, and above token/node/depth ceilings.}
+\def\TCInitialState{Small explicit parser limits.}
+\def\TCProcedure{Lex/parse each boundary and inspect result/status/cleanup.}
+\def\TCExpectedResult{At-limit inputs behave deterministically; exceeding a
+ceiling returns Resource without uncontrolled allocation or a partial owner.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

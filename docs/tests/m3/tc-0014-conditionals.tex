@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0014}
+\def\TCTitle{Sequential conditional unary precedence}
+\def\TCPurpose{Verify M3 syntax allocation of WSH-REQ-0014.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0014}
+\def\TCDesignRef{M3 design: Parser and AST}
+\def\TCFeatureRef{Command-list, and/or, negate, and subshell nodes}
+\def\TCTestTechnique{Precedence-table and syntax testing.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{Status evaluation belongs to M4.}
+\def\TCInputData{Semicolon, newline, ampersand, logical, and unary forms.}
+\def\TCInitialState{No parser objects exist.}
+\def\TCProcedure{Parse mixed operators and compare canonical nesting.}
+\def\TCExpectedResult{Operators associate and nest exactly as the normative
+grammar specifies, with ordered background/list nodes.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

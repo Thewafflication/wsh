@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0017}
+\def\TCTitle{Blocks functions and control-flow grammar}
+\def\TCPurpose{Verify M3 syntax allocation of WSH-REQ-0017.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0017}
+\def\TCDesignRef{M3 design: Parser and AST}
+\def\TCFeatureRef{Block, if, while, for, switch, case, and fn nodes}
+\def\TCTestTechnique{Grammar-production and state-transition testing.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{Control evaluation belongs to M4.}
+\def\TCInputData{Every compound production, empty forms, and missing closers.}
+\def\TCInitialState{No functions or variables exist.}
+\def\TCProcedure{Parse each form and inspect canonical ordered children.}
+\def\TCExpectedResult{All accepted forms complete deterministically and open
+forms report Incomplete without a partial AST.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

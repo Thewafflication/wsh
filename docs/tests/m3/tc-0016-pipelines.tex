@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0016}
+\def\TCTitle{Linear pipeline syntax and descriptor edges}
+\def\TCPurpose{Verify M3 syntax allocation of WSH-REQ-0016.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0016}
+\def\TCDesignRef{M3 design: Parser and AST}
+\def\TCFeatureRef{Pipeline and pipe-operator nodes}
+\def\TCTestTechnique{Syntax testing and boundary analysis.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{Pipe creation and status collection belong to M5.}
+\def\TCInputData{Plain, selected, remapped, chained, and missing stages.}
+\def\TCInitialState{No handles exist.}
+\def\TCProcedure{Parse pipelines and inspect stage/edge ordering.}
+\def\TCExpectedResult{All stages and decorations are ordered; a missing stage
+is Incomplete at EOF or Error before another delimiter.}
+\def\TCPostConditions{All owners are destroyed; no handle is created.}
+\TCTemplate
+\end{document}

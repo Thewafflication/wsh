@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0008}
+\def\TCTitle{Apostrophe quotation and doubled apostrophes}
+\def\TCPurpose{Verify M3 quotation for WSH-REQ-0008.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0008}
+\def\TCDesignRef{M3 design: Lexer}
+\def\TCFeatureRef{Quoted tokens and immutable quoted-word AST nodes}
+\def\TCTestTechnique{Syntax testing and equivalence partitioning.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{M2 supplies validated normalized source.}
+\def\TCInputData{Empty, multiline, literal, and doubled-apostrophe words.}
+\def\TCInitialState{No parser objects exist.}
+\def\TCProcedure{Parse each quoted form and inspect canonical AST text.}
+\def\TCExpectedResult{Text is decoded exactly; empty quotation is one empty
+string form and unterminated quotation is Incomplete.}
+\def\TCPostConditions{All source and parser owners are destroyed.}
+\TCTemplate
+\end{document}

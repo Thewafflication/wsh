@@ -13,7 +13,10 @@ enable_testing()
 
 set(WSH_EMBEDDING_ABI 1)
 
-add_library(wsh_core STATIC src/portable_core.c)
+add_library(wsh_core STATIC
+    src/parser.c
+    src/portable_core.c
+)
 target_include_directories(wsh_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 if(MSVC)

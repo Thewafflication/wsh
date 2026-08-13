@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0023}
+\def\TCTitle{Malformed incomplete and diagnostic behavior}
+\def\TCPurpose{Verify WSH-REQ-0019, 0023, and 0075.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0019, WSH-REQ-0023, WSH-REQ-0075}
+\def\TCDesignRef{M3 design: Incomplete Input and Recovery}
+\def\TCFeatureRef{Tri-state parser status and syntax diagnostics}
+\def\TCTestTechnique{Negative syntax and state-transition testing.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{M2 rejects invalid encoding before M3.}
+\def\TCInputData{Unexpected tokens and every open syntactic construct.}
+\def\TCInitialState{No parse tree exists.}
+\def\TCProcedure{Parse partitions; inspect status, root, code, and span.}
+\def\TCExpectedResult{Malformed is Error, continuable EOF is Incomplete, no
+root is published, and diagnostics retain objective source locations.}
+\def\TCPostConditions{All owners are destroyed and no command runs.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0015}
+\def\TCTitle{Ordered redirection and here-document syntax}
+\def\TCPurpose{Verify M3 syntax allocation of WSH-REQ-0015.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0015}
+\def\TCDesignRef{M3 design: Lexer and AST}
+\def\TCFeatureRef{Redirection, descriptor, and here-body nodes}
+\def\TCTestTechnique{Decision-table and syntax testing.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{Opening files and handles belongs to M5.}
+\def\TCInputData{Input, output, append, here, select, duplicate, and close.}
+\def\TCInitialState{No filesystem capability exists.}
+\def\TCProcedure{Parse ordered redirections and exact here markers/bodies.}
+\def\TCExpectedResult{AST child order and descriptor text are retained; body
+text is inert; malformed decorations fail and open bodies are Incomplete.}
+\def\TCPostConditions{All owners are destroyed; no file is accessed.}
+\TCTemplate
+\end{document}

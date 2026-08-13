@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0082}
+\def\TCTitle{Lexer parser allocation-failure atomicity}
+\def\TCPurpose{Verify M3 ownership allocation of WSH-REQ-0024 and 0075.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0024, WSH-REQ-0075}
+\def\TCDesignRef{M3 design: Limits and Failure Behavior}
+\def\TCFeatureRef{Injected allocator and complete graph teardown}
+\def\TCTestTechnique{Fault injection at every allocation ordinal.}
+\def\TCPreconditions{The parser test executable is built.}
+\def\TCEnvironment{Any supported C99 configuration.}
+\def\TCAssumptions{The test allocator accurately counts owned blocks.}
+\def\TCInputData{A source exercising every principal AST form.}
+\def\TCInitialState{Zero outstanding test allocations.}
+\def\TCProcedure{Fail each allocation in turn, destroy any owner, then pass.}
+\def\TCExpectedResult{Each failure publishes no partial complete AST and
+returns to zero blocks; the first nonfailed ordinal completes deterministically.}
+\def\TCPostConditions{Zero outstanding blocks.}
+\TCTemplate
+\end{document}
