@@ -28,6 +28,8 @@
 - x64 Debug: build Pass; CTest 37/37 Pass.
 - x64 Release: build Pass; CTest 37/37 Pass.
 - x86 Debug: build Pass; CTest 37/37 Pass.
+- GitHub Actions run `31663526672`: 3/3 `windows-2022` jobs Pass from a clean
+  checkout at `35c24d8`.
 - M3 controlled evidence: 45/45 Pass across the matrix.
 - M3 generated corpus: 4,096 bounded inputs parsed twice per controlled run
   with identical result/status/diagnostic or complete formatted AST.

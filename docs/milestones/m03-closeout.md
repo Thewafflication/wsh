@@ -45,12 +45,17 @@ environment, registry, console, or process-global mutation was introduced.
 | x64 Debug | Pass, MSVC `/W4 /WX` | 37/37 Pass | 15/15 Pass |
 | x64 Release | Pass, MSVC `/W4 /WX` | 37/37 Pass | 15/15 Pass |
 | x86 Debug on WOW64 | Pass, MSVC `/W4 /WX` | 37/37 Pass | 15/15 Pass |
+| GitHub `windows-2022` | 3/3 matrix builds Pass | 111/111 Pass | 45/45 Pass |
 
 The 111 passing CTest executions include 45 M3 controlled functional runs,
 the inherited 42 M2 controlled runs, six smokes, and 18 traceability,
 Doxygen/source-quality, and evidence gates. Current generated M3 evidence is
 isolated under each build tree at
 `test-evidence/m3/<configuration>/current`.
+
+Hosted run
+[`31663526672`](https://github.com/Thewafflication/wsh/actions/runs/31663526672)
+confirmed the same matrix from a clean checkout at `35c24d8`.
 
 ## Size and Process Metrics
 

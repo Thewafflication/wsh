@@ -90,3 +90,13 @@ Visual Studio 18 instance, so a clean `windows-2022` checkout could not
 configure that preset. All 137 generated `out/` entries were removed from the
 Git index while local build/evidence files were retained. Future checkouts now
 configure every preset from source and the existing `/out/` ignore rule.
+
+## Hosted Validation Result
+
+GitHub Actions run
+[`31663526672`](https://github.com/Thewafflication/wsh/actions/runs/31663526672)
+completed successfully for source commit `35c24d8`. All three `windows-2022`
+matrix jobs passed current-Doxygen installation, fresh configure, build, all
+37 CTest entries, and artifact upload. The official latest-release resolver
+selected Doxygen 1.17.0; the bootstrap's selected-version/executable-version
+comparison passed in every job.
