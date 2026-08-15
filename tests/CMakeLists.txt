@@ -55,12 +55,14 @@ find_program(
     NAMES pwsh
     REQUIRED
 )
-find_program(
-    WSH_DOXYGEN_EXECUTABLE
-    NAMES doxygen
-    HINTS "${CMAKE_SOURCE_DIR}/out/tools/doxygen/bin"
-    REQUIRED
-)
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    find_program(
+        WSH_DOXYGEN_EXECUTABLE
+        NAMES doxygen
+        HINTS "${CMAKE_SOURCE_DIR}/out/tools/doxygen/bin"
+        REQUIRED
+    )
+endif()
 
 set(WSH_M2_TEST_IDS
     0007
@@ -92,21 +94,23 @@ add_test(
 )
 set_tests_properties(m2-traceability PROPERTIES LABELS "M2;quality")
 
-add_test(
-    NAME m2-source-quality
-    COMMAND
-        "${WSH_POWERSHELL_EXECUTABLE}"
-        -NoProfile
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m2-source-quality.ps1"
-        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
-        -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
-)
-set_tests_properties(
-    m2-source-quality
-    PROPERTIES
-        DEPENDS m2-traceability
-        LABELS "M2;quality"
-)
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m2-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m2-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m2-source-quality
+        PROPERTIES
+            DEPENDS m2-traceability
+            LABELS "M2;quality"
+    )
+endif()
 
 set(WSH_M2_CTEST_NAMES)
 foreach(test_id IN LISTS WSH_M2_TEST_IDS)
@@ -185,21 +189,23 @@ add_test(
 )
 set_tests_properties(m3-traceability PROPERTIES LABELS "M3;quality")
 
-add_test(
-    NAME m3-source-quality
-    COMMAND
-        "${WSH_POWERSHELL_EXECUTABLE}"
-        -NoProfile
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m3-source-quality.ps1"
-        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
-        -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
-)
-set_tests_properties(
-    m3-source-quality
-    PROPERTIES
-        DEPENDS m3-traceability
-        LABELS "M3;quality"
-)
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m3-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m3-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m3-source-quality
+        PROPERTIES
+            DEPENDS m3-traceability
+            LABELS "M3;quality"
+    )
+endif()
 
 set(WSH_M3_CTEST_NAMES)
 foreach(test_id IN LISTS WSH_M3_TEST_IDS)

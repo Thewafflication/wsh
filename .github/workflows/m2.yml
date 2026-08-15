@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - "**"
   pull_request:
   workflow_dispatch:
 
@@ -15,118 +17,489 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: ${{ matrix.name }}
+  source-quality:
+    name: Lint and static analysis
     runs-on: windows-2022
     timeout-minutes: 30
+    steps:
+      - name: Check out source and WSP
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Doxygen
+        shell: pwsh
+        run: choco install doxygen.install --no-progress --yes
+
+      - name: Verify pinned WSP tools
+        shell: pwsh
+        run: |
+          ./wsp/tools/tests/run-tests.ps1
+          $global:LASTEXITCODE = 0
+
+      - name: Configure MSVC analysis build
+        shell: pwsh
+        run: |
+          cmake --preset x64-debug `
+            -B out/build/static-analysis `
+            -DWSH_ENABLE_SOURCE_QUALITY_TESTS=ON `
+            '-DCMAKE_C_FLAGS=/analyze'
+
+      - name: Run MSVC static analysis
+        id: analysis
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/logs | Out-Null
+          cmake --build out/build/static-analysis `
+            --config Debug `
+            --target wsh wsh_shared 2>&1 |
+            Tee-Object out/logs/static-analysis-build.log
+          exit $LASTEXITCODE
+
+      - name: Run traceability and source lint
+        if: steps.analysis.outcome == 'success'
+        id: quality_tests
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $junit = Join-Path $env:GITHUB_WORKSPACE `
+            'out/build/static-analysis/quality-results.xml'
+          ctest --test-dir out/build/static-analysis `
+            -C Debug `
+            -R '^(m2|m3)-(traceability|source-quality)$' `
+            --output-on-failure `
+            --output-junit $junit `
+            2>&1 | Tee-Object out/logs/source-quality-test.log
+          exit $LASTEXITCODE
+
+      - name: Collect source-quality evidence
+        if: always()
+        shell: pwsh
+        run: |
+          ./tools/New-CiEvidenceArchive.ps1 `
+            -Architecture x64 `
+            -Configuration Debug `
+            -BuildDirectory out/build/static-analysis `
+            -SourceRevision '${{ github.sha }}' `
+            -BuildLog out/logs/static-analysis-build.log `
+            -TestLog out/logs/source-quality-test.log `
+            -JUnitPath out/build/static-analysis/quality-results.xml `
+            -OutputPath out/artifacts/wsh-source-quality-${{ github.sha }}.zip
+
+      - name: Upload source-quality evidence
+        if: always()
+        id: upload_quality
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wsh-source-quality-${{ github.sha }}
+          path: out/artifacts/wsh-source-quality-${{ github.sha }}.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish source-quality summary
+        if: always()
+        shell: pwsh
+        run: |
+          ./tools/Write-CiTestSummary.ps1 `
+            -Architecture x64 `
+            -Configuration 'Source quality and static analysis' `
+            -BuildOutcome '${{ steps.analysis.outcome }}' `
+            -TestOutcome '${{ steps.quality_tests.outcome }}' `
+            -JUnitPath out/build/static-analysis/quality-results.xml `
+            -EvidenceArtifactUrl '${{ steps.upload_quality.outputs.artifact-url }}'
+
+      - name: Enforce source-quality gate
+        if: >-
+          always() &&
+          (steps.analysis.outcome != 'success' ||
+          steps.quality_tests.outcome != 'success')
+        shell: pwsh
+        run: throw 'Source lint or MSVC static analysis failed.'
+
+  debug:
+    name: ${{ matrix.arch }} Debug
+    needs: source-quality
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: x64 Debug
-            preset: x64-debug
-            configuration: Debug
-            build_directory: out/build/x64-debug
-            artifact_name: wsh-x64-debug
-          - name: x64 Release
-            preset: x64-release
-            configuration: Release
-            build_directory: out/build/x64-release
-            artifact_name: wsh-x64-release
-          - name: x86 Debug
+          - arch: x86
+            runner: windows-2022
             preset: x86-debug
-            configuration: Debug
             build_directory: out/build/x86-debug
-            artifact_name: wsh-x86-debug
+          - arch: x64
+            runner: windows-2022
+            preset: x64-debug
+            build_directory: out/build/x64-debug
+          - arch: arm64
+            runner: windows-11-arm
+            preset: arm64-debug
+            build_directory: out/build/arm64-debug
     steps:
       - name: Check out source and WSP
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify native ARM64 runner
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ARCH -ne 'ARM64') {
+            throw "ARM64 tests require a native ARM64 runner; got $env:RUNNER_ARCH."
+          }
+
+      - name: Configure Debug
+        shell: pwsh
+        run: >-
+          cmake --preset '${{ matrix.preset }}'
+          -DWSH_ENABLE_SOURCE_QUALITY_TESTS=OFF
+
+      - name: Build Debug
+        id: build
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/logs | Out-Null
+          cmake --build --preset '${{ matrix.preset }}' 2>&1 |
+            Tee-Object 'out/logs/${{ matrix.arch }}-debug-build.log'
+          exit $LASTEXITCODE
+
+      - name: Run Debug test suite
+        if: steps.build.outcome == 'success'
+        id: tests
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $junit = Join-Path $env:GITHUB_WORKSPACE `
+            '${{ matrix.build_directory }}/test-results.xml'
+          ctest --preset '${{ matrix.preset }}' `
+            --output-on-failure `
+            --output-junit $junit 2>&1 |
+            Tee-Object 'out/logs/${{ matrix.arch }}-debug-test.log'
+          exit $LASTEXITCODE
+
+      - name: Use isolated WPM data directory
+        if: steps.build.outcome == 'success'
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Install WPM
+        if: steps.build.outcome == 'success'
+        id: install_wpm
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
+          Invoke-WebRequest -UseBasicParsing `
+            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+            -OutFile $installer
+          & $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+          $wpm = Join-Path $wpmDirectory 'wpm.exe'
+          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
+            throw "WPM installation did not produce $wpm."
+          }
+          $wpmDirectory >> $env:GITHUB_PATH
+
+      - name: Build Debug WPM package
+        if: steps.install_wpm.outcome == 'success'
+        id: package
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $shortRevision = '${{ github.sha }}'.Substring(0, 12)
+          ./tools/Build-WpmPackage.ps1 `
+            -Architecture '${{ matrix.arch }}' `
+            -Configuration Debug `
+            -Version "1.0.0+$shortRevision" `
+            -BuildDirectory '${{ matrix.build_directory }}'
+
+      - name: Collect Debug build and test evidence
+        if: always()
+        shell: pwsh
+        run: |
+          ./tools/New-CiEvidenceArchive.ps1 `
+            -Architecture '${{ matrix.arch }}' `
+            -Configuration Debug `
+            -BuildDirectory '${{ matrix.build_directory }}' `
+            -SourceRevision '${{ github.sha }}' `
+            -BuildLog 'out/logs/${{ matrix.arch }}-debug-build.log' `
+            -TestLog 'out/logs/${{ matrix.arch }}-debug-test.log' `
+            -JUnitPath '${{ matrix.build_directory }}/test-results.xml' `
+            -PackageDirectory out/packages `
+            -OutputPath 'out/artifacts/wsh-${{ matrix.arch }}-debug-${{ github.sha }}.zip'
+
+      - name: Upload Debug build and test evidence
+        if: always()
+        id: upload_evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wsh-${{ matrix.arch }}-debug-${{ github.sha }}
+          path: out/artifacts/wsh-${{ matrix.arch }}-debug-${{ github.sha }}.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish Debug test summary
+        if: always()
+        shell: pwsh
+        run: |
+          $package = @(Get-ChildItem out/packages `
+            -Filter 'wsh-${{ matrix.arch }}-debug-*.zip' `
+            -File -ErrorAction SilentlyContinue)
+          $packagePath = if ($package.Count -eq 1) {
+            $package[0].FullName
+          } else {
+            ''
+          }
+          ./tools/Write-CiTestSummary.ps1 `
+            -Architecture '${{ matrix.arch }}' `
+            -Configuration Debug `
+            -BuildOutcome '${{ steps.build.outcome }}' `
+            -TestOutcome '${{ steps.tests.outcome }}' `
+            -PackageOutcome '${{ steps.package.outcome }}' `
+            -JUnitPath '${{ matrix.build_directory }}/test-results.xml' `
+            -PackagePath $packagePath `
+            -EvidenceArtifactUrl '${{ steps.upload_evidence.outputs.artifact-url }}'
+
+      - name: Enforce Debug build, test, and package results
+        if: >-
+          always() &&
+          (steps.build.outcome != 'success' ||
+          steps.tests.outcome != 'success' ||
+          steps.install_wpm.outcome != 'success' ||
+          steps.package.outcome != 'success')
+        shell: pwsh
+        run: throw '${{ matrix.arch }} Debug verification or packaging failed.'
+
+  release:
+    name: ${{ matrix.arch }} Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: debug
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: windows-2022
+            preset: x86-release
+            build_directory: out/build/x86-release
+          - arch: x64
+            runner: windows-2022
+            preset: x64-release
+            build_directory: out/build/x64-release
+          - arch: arm64
+            runner: windows-11-arm
+            preset: arm64-release
+            build_directory: out/build/arm64-release
+    steps:
+      - name: Check out tagged source and WSP
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify semantic release tag
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_name }}' -notmatch `
+            '^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw 'Release tags must contain a semantic version.'
+          }
+
+      - name: Verify native ARM64 runner
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ARCH -ne 'ARM64') {
+            throw "ARM64 builds require a native ARM64 runner; got $env:RUNNER_ARCH."
+          }
+
+      - name: Configure Release
+        shell: pwsh
+        run: >-
+          cmake --preset '${{ matrix.preset }}'
+          -DWSH_ENABLE_SOURCE_QUALITY_TESTS=OFF
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset '${{ matrix.preset }}'
+
+      - name: Upload successful Release build
+        id: upload_build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wsh-${{ matrix.arch }}-release-build
+          path: ${{ matrix.build_directory }}/Release/wsh.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Publish Release build summary
+        shell: pwsh
+        run: |
+          @(
+            '# WSH Release Build'
+            ''
+            '| Architecture | Build | Build artifact |'
+            '| --- | --- | --- |'
+            '| ${{ matrix.arch }} | 🟢 **PASS** | [Download](${{ steps.upload_build.outputs.artifact-url }}) |'
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+  release-package:
+    name: Package successful Release matrix
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release
+    runs-on: windows-2022
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Download successful Release builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: wsh-*-release-build
+          path: downloaded-builds
+
+      - name: Assemble Release build directories
+        shell: pwsh
+        run: |
+          foreach ($architecture in @('x86', 'x64', 'arm64')) {
+            $source = "downloaded-builds/wsh-$architecture-release-build/wsh.exe"
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "The $architecture Release build was not downloaded."
+            }
+            $destination = "out/release-builds/$architecture/Release"
+            New-Item -ItemType Directory -Force -Path $destination |
+              Out-Null
+            Copy-Item -LiteralPath $source -Destination $destination
+          }
+
+      - name: Use isolated WPM data directory
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Install WPM
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
+          Invoke-WebRequest -UseBasicParsing `
+            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+            -OutFile $installer
+          & $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+          $wpm = Join-Path $wpmDirectory 'wpm.exe'
+          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
+            throw "WPM installation did not produce $wpm."
+          }
+          $wpmDirectory >> $env:GITHUB_PATH
+
+      - name: Build Release WPM packages
+        shell: pwsh
+        run: |
+          foreach ($architecture in @('x86', 'x64', 'arm64')) {
+            ./tools/Build-WpmPackage.ps1 `
+              -Architecture $architecture `
+              -Configuration Release `
+              -Version '${{ github.ref_name }}' `
+              -BuildDirectory "out/release-builds/$architecture"
+          }
+
+      - name: Upload complete Release WPM package set
+        id: upload_packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wsh-release-packages
+          path: out/packages/wsh-*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish Release package summary
+        shell: pwsh
+        run: |
+          @(
+            '# WSH Release Packages'
+            ''
+            'All x86, x64, and ARM64 Release builds succeeded.'
+            ''
+            '[Download the complete WPM package set](${{ steps.upload_packages.outputs.artifact-url }})'
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+  publish:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release-package
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release metadata tools and WSP
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           submodules: recursive
           persist-credentials: false
 
-      - name: Install current Doxygen release
+      - name: Download Release WPM packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: wsh-release-packages
+          path: release-assets
+
+      - name: Create WPM repository indexes
+        shell: pwsh
+        run: |
+          ./tools/New-WpmRepositoryIndex.ps1 `
+            -PackageDirectory release-assets `
+            -OutputDirectory release-assets `
+            -ReleaseTag '${{ github.ref_name }}' `
+            -Repository '${{ github.repository }}'
+
+      - name: Generate release checksums
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem release-assets -File |
+            Select-Object -ExpandProperty FullName)
+          ./wsp/tools/New-ArtifactChecksum.ps1 `
+            -Path $files `
+            -OutputPath release-assets/SHA256SUMS
+
+      - name: Create release and upload assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $headers = @{
-              Accept = 'application/vnd.github+json'
-              'User-Agent' = 'wsh-windows-ci'
+          $tag = '${{ github.ref_name }}'
+          gh release view $tag --repo '${{ github.repository }}' *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --repo '${{ github.repository }}' `
+              --target '${{ github.sha }}' `
+              --verify-tag `
+              --generate-notes `
+              --title $tag
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          if ($env:GH_TOKEN) {
-              $headers.Authorization = "Bearer $env:GH_TOKEN"
-          }
-          $releaseUri =
-              'https://api.github.com/repos/doxygen/doxygen/releases/latest'
-          $release = Invoke-RestMethod -Headers $headers -Uri $releaseUri
-          $pattern = '^doxygen-(?<version>\d+\.\d+\.\d+)' +
-              '\.windows\.x64\.bin\.zip$'
-          $assets = @($release.assets | Where-Object {
-              $_.name -match $pattern
-          })
-          if ($assets.Count -ne 1) {
-              throw "Expected one Windows x64 Doxygen asset; found " +
-                  $assets.Count
-          }
-          $asset = $assets[0]
-          $assetMatch = [regex]::Match($asset.name, $pattern)
-          $selectedVersion =
-              [version]$assetMatch.Groups['version'].Value
-          $archive = Join-Path $env:RUNNER_TEMP $asset.name
-          $destination = Join-Path $env:GITHUB_WORKSPACE `
-              'out/tools/doxygen/bin'
-          Write-Host "Downloading Doxygen $selectedVersion"
-          Invoke-WebRequest -UseBasicParsing `
-              -Uri $asset.browser_download_url `
-              -OutFile $archive
-          New-Item -ItemType Directory -Force -Path $destination |
-              Out-Null
-          Expand-Archive -LiteralPath $archive `
-              -DestinationPath $destination
-          $doxygen = Join-Path $destination 'doxygen.exe'
-          $reportedOutput = (& $doxygen --version).Trim()
-          Write-Host "Doxygen version: $reportedOutput"
-          $reportedMatch = [regex]::Match(
-              $reportedOutput,
-              '^\d+\.\d+\.\d+')
-          if (-not $reportedMatch.Success) {
-              throw "Unrecognized Doxygen version: $reportedOutput"
-          }
-          $reportedVersion = [version]$reportedMatch.Value
-          if ($reportedVersion -ne $selectedVersion) {
-              throw "Doxygen version mismatch: $reportedOutput"
-          }
-
-      - name: Configure
-        shell: pwsh
-        run: cmake --preset '${{ matrix.preset }}'
-
-      - name: Build
-        shell: pwsh
-        run: cmake --build --preset '${{ matrix.preset }}'
-
-      - name: Run CTest
-        shell: pwsh
-        run: ctest --preset '${{ matrix.preset }}'
-
-      - name: Upload controlled evidence and test logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: |
-            ${{ matrix.build_directory }}/test-evidence/${{ matrix.configuration }}
-            ${{ matrix.build_directory }}/test-evidence/m3/${{ matrix.configuration }}
-            ${{ matrix.build_directory }}/Testing/Temporary/LastTest.log
-            ${{ matrix.build_directory }}/Testing/Temporary/LastTestsFailed.log
-            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wsh.exe
-            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wsh.pdb
-            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wshlib.dll
-            ${{ matrix.build_directory }}/${{ matrix.configuration }}/wshlib.pdb
-            ${{ matrix.build_directory }}/tests/${{ matrix.configuration }}/*-tests.exe
-            ${{ matrix.build_directory }}/tests/${{ matrix.configuration }}/*-tests.pdb
-            out/doxygen/m2
-            out/doxygen/m3
-          if-no-files-found: warn
-          retention-days: 14
+          $assets = @(Get-ChildItem release-assets -File)
+          gh release upload $tag `
+            --repo '${{ github.repository }}' `
+            --clobber @($assets.FullName)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -13,6 +13,12 @@ enable_testing()
 
 set(WSH_EMBEDDING_ABI 1)
 
+option(
+    WSH_ENABLE_SOURCE_QUALITY_TESTS
+    "Enable Doxygen-backed source-quality tests"
+    ON
+)
+
 add_library(wsh_core STATIC
     src/parser.c
     src/portable_core.c

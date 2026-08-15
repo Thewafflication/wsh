@@ -43,6 +43,14 @@ OS equivalence classes require analysis of API, console, filesystem, registry,
 job, and loader differences. Emulation is identified and never reported as
 native evidence.
 
+Normal CI first runs source lint, traceability validation, Doxygen warnings as
+errors, and MSVC static analysis. Only that gate can start the x86, x64, and
+native ARM64 Debug matrix. Each Debug entry builds, runs the complete
+architecture-dependent CTest suite, validates controlled evidence, and builds
+an architecture-specific Debug WPM package. A semantic-version tag can start
+the corresponding three Release builds only after every Debug entry passes.
+Release publication requires all three Release WPM packages.
+
 ## 5. Test Design
 
 Use equivalence partitioning and boundary analysis for encodings, lengths,
@@ -68,6 +76,16 @@ fragments validated by WSP tools.
 Failures and original diagnostics are retained when rerun. Test outputs are
 isolated by execution ID. Evidence generation or traceability failure is a test
 failure.
+
+Every Debug job publishes a per-test GitHub job summary and one downloadable
+ZIP. The ZIP identifies the source revision, target and runner architectures,
+toolchain, and configuration, and contains machine-readable JUnit results,
+human-readable CTest diagnostics, controlled TeX evidence, build logs, exact
+tested binaries, debugger symbols, file checksums, and the Debug WPM package.
+Debug CI evidence is retained for 90 days. Release packages, checksums, and the
+WPM `index.json` repository index are retained with the GitHub release. A
+byte-identical `repository.json` alias is published for compatibility with
+external automation; WPM itself consumes `index.json`.
 
 ## 7. Console and Legacy Systems
 

@@ -59,9 +59,21 @@ cmake --build --preset x64-debug
 ctest --preset x64-debug --output-on-failure
 ```
 
-The same test dispatcher has x64 Release and x86 Debug presets. M2 test runs
-write isolated TeX evidence beneath each build tree and validate it through
-the pinned WSP tools.
+The same test dispatcher has Debug and Release presets for x86, x64, and
+ARM64. Test runs write isolated TeX evidence beneath each build tree and
+validate it through the pinned WSP tools.
+
+GitHub Actions runs source lint and MSVC static analysis before starting the
+three-architecture Debug matrix. Each Debug job executes CTest, publishes a
+per-test job summary, and retains one downloadable ZIP containing the build
+log, JUnit and CTest results, controlled test evidence, exact binaries and
+symbols, checksums, and an unsigned architecture-specific Debug WPM package.
+ARM64 tests execute on a native ARM64 runner.
+
+Semantic-version tags start Release builds only after all Debug jobs pass.
+Successful x86, x64, and ARM64 Release builds become WPM packages in the
+corresponding GitHub release. WPM clients consume the published `index.json`;
+the release also includes an identical `repository.json` compatibility asset.
 
 ## Planned Release Toolchain
 
