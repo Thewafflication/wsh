@@ -11,8 +11,8 @@ variables, consoles, and handles.
 
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
-M1 repository skeleton and M2 portable core are implemented. Lexer, parser,
-evaluator, and Windows process behavior remain allocated to later milestones.
+M1 repository skeleton, M2 portable core, and M3 lexer/parser are implemented.
+Evaluation and Windows process behavior remain allocated to later milestones.
 
 ## Install
 
@@ -40,6 +40,22 @@ machine-level `WSH_HOME` variable. Open a new terminal and verify the install:
 
 Release packages are signed with the published WPM release key and accompanied
 by `SHA256SUMS` on the [latest release].
+
+## Interactive Input
+
+Run `wsh.exe` with no source operand to read standard input. When standard
+input is a Windows console, WSH displays `% `, uses `; ` while a command is
+syntactically incomplete, and returns to the primary prompt after a complete
+command or a recoverable syntax error. Press Ctrl+Z and then Enter at an empty
+prompt to leave the session.
+
+Use `--interactive` (`-i`) to require console input or `--non-interactive`
+(`-I`) to suppress interactive behavior. Redirected standard input is selected
+as batch input automatically and never receives prompts.
+
+The current front end delivers each complete immutable parse tree across the
+evaluator boundary. Until the planned evaluator milestone is implemented,
+accepted commands have no runtime effects.
 
 ## Project Goals
 

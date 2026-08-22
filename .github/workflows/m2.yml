@@ -250,7 +250,7 @@ jobs:
           ./tools/Build-WpmPackage.ps1 `
             -Architecture '${{ matrix.arch }}' `
             -Configuration Debug `
-            -Version "1.0.1+$shortRevision" `
+            -Version "1.1.0+$shortRevision" `
             -BuildDirectory '${{ matrix.build_directory }}'
 
       - name: Collect Debug build and test evidence

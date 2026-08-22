@@ -13,8 +13,22 @@ target_include_directories(
         "${CMAKE_SOURCE_DIR}/include"
 )
 target_link_libraries(parser-tests PRIVATE wsh_core)
+
+add_executable(
+    frontend-tests
+    frontend_tests.c
+    "${CMAKE_SOURCE_DIR}/src/frontend.c"
+)
+target_include_directories(
+    frontend-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/src"
+)
+target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
+wsh_configure_executable(frontend-tests)
 
 set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
 set(WSH_TEST_TARGET_ARCHITECTURE "${WSH_TARGET_ARCHITECTURE}")
@@ -35,10 +49,27 @@ set_tests_properties(
         PASS_REGULAR_EXPRESSION "wsh embedding ABI 1"
 )
 
+add_test(NAME frontend-unit COMMAND frontend-tests)
+set_tests_properties(frontend-unit PROPERTIES LABELS "interactive;unit")
+
 find_program(
     WSH_POWERSHELL_EXECUTABLE
     NAMES pwsh
     REQUIRED
+)
+
+add_test(
+    NAME frontend-process
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/run-frontend-process-tests.ps1"
+        -Executable "$<TARGET_FILE:wsh>"
+)
+set_tests_properties(
+    frontend-process
+    PROPERTIES
+        LABELS "interactive;integration"
 )
 if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
     find_program(
