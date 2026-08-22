@@ -103,9 +103,7 @@ be recorded in the release-readiness record.
 - Build: CMake with checked-in configure, build, and test presets.
 - Test runner: CTest, with small C unit-test executables and process-level
   PowerShell acceptance runners where Windows orchestration is required.
-- Compilers: TinyCC/WCRT is the primary bootstrap toolchain. MSVC and a
-  GCC-compatible Windows compiler are secondary compatibility gates once the
-  core is stable.
+- Compiler/runtime: TinyCC/WCRT is the single supported build toolchain.
 - Dependencies provisioned by WPM: `wcrt`, `kertex`, and `cv2pdb`.
 - Product artifacts: portable `wsh.exe`, static `wshlib`, alternative
   `wshlib.dll`, public ABI header, and required symbols/evidence.
@@ -114,13 +112,14 @@ be recorded in the release-readiness record.
 - Documentation: controlled Markdown remains authoritative. Generated test
   evidence is TeX; release documentation is assembled under the WSP process.
 
-The exact WPM repository configuration, package versions, architectures, and
-install roots will be captured in a checked-in dependency lock or generated
-dependency inventory before the first release baseline. Provisioning will use
-commands of the following form, finalized against the package indexes:
+The TinyCC/WCRT build baseline is pinned to TinyCC
+`0.9.28-rc.1444+9a4be30f` and WCRT `1.0.0`. Build scripts install those exact
+versions from their WPM release repositories. KerTeX and cv2pdb will be pinned
+when their documentation and symbol gates are enabled:
 
 ```powershell
-wpm install wcrt --arch <x86|x64|arm64> --version <pinned-version>
+wpm install tinycc --arch <x86|x64|arm64> --version 0.9.28-rc.1444+9a4be30f
+wpm install wcrt --arch any --version 1.0.0
 wpm install kertex --arch <architecture> --version <pinned-version>
 wpm install cv2pdb --arch <architecture> --version <pinned-version>
 ```
@@ -232,7 +231,7 @@ library, embedding, architecture, and security baseline.
 | Unicode is corrupted at API boundaries | Use UTF-8 internally and wide Win32 APIs; define invalid-input behavior and round-trip tests |
 | Parser ambiguity or accidental shell injection | Use a formal grammar and direct `CreateProcessW`; never invoke `cmd.exe` implicitly |
 | KerTeX does not compile the WSP-oriented TeX pipeline | Complete an M0 compatibility spike and record the selected engine and required tailoring |
-| TinyCC diagnostics or code generation miss defects | Add MSVC and GCC-compatible warning/test gates before 1.0; run sanitizers where a compatible Windows toolchain permits |
+| TinyCC diagnostics or code generation miss defects | Maintain compiler-conformance probes, warnings-as-errors, controlled tests, and cross-architecture/native execution gates |
 | Feature growth prevents a correct usable core | Enforce milestone scope and require ADR/requirements impact analysis for additions |
 
 ## Release Gate

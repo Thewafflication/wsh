@@ -7,109 +7,111 @@
   },
   "configurePresets": [
     {
+      "name": "tinycc-wcrt-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/tinycc-wcrt-toolchain.cmake",
+      "cacheVariables": {
+        "WSH_ENABLE_SOURCE_QUALITY_TESTS": "OFF"
+      }
+    },
+    {
       "name": "x64-debug",
-      "displayName": "x64 Debug",
-      "description": "Debug build for the initial x64 toolchain skeleton.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "displayName": "x64 TinyCC/WCRT Debug",
+      "description": "Debug build with x64 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/x64-debug",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "WSH_TARGET_ARCHITECTURE": "x64"
       }
     },
     {
       "name": "x64-release",
-      "displayName": "x64 Release",
-      "description": "Release build for the initial x64 toolchain skeleton.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "displayName": "x64 TinyCC/WCRT Release",
+      "description": "Release build with x64 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/x64-release",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "WSH_TARGET_ARCHITECTURE": "x64"
       }
     },
     {
       "name": "x86-debug",
-      "displayName": "x86 Debug",
-      "description": "Debug build configuration for a Windows x86 host.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "Win32",
+      "displayName": "x86 TinyCC/WCRT Debug",
+      "description": "Debug build with x86 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/x86-debug",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "WSH_TARGET_ARCHITECTURE": "x86"
       }
     },
     {
       "name": "x86-release",
-      "displayName": "x86 Release",
-      "description": "Release build configuration for a Windows x86 host.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "Win32",
+      "displayName": "x86 TinyCC/WCRT Release",
+      "description": "Release build with x86 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/x86-release",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "WSH_TARGET_ARCHITECTURE": "x86"
       }
     },
     {
       "name": "arm64-debug",
-      "displayName": "ARM64 Debug",
-      "description": "Debug build configuration for a native Windows ARM64 host.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "ARM64",
+      "displayName": "ARM64 TinyCC/WCRT Debug",
+      "description": "Debug cross-build with ARM64 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/arm64-debug",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "WSH_TARGET_ARCHITECTURE": "arm64"
       }
     },
     {
       "name": "arm64-release",
-      "displayName": "ARM64 Release",
-      "description": "Release build configuration for a native Windows ARM64 host.",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "ARM64",
+      "displayName": "ARM64 TinyCC/WCRT Release",
+      "description": "Release cross-build with ARM64 TinyCC and statically linked WCRT.",
+      "inherits": "tinycc-wcrt-base",
       "binaryDir": "${sourceDir}/out/build/arm64-release",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "WSH_TARGET_ARCHITECTURE": "arm64"
       }
     }
   ],
   "buildPresets": [
     {
       "name": "x64-debug",
-      "configurePreset": "x64-debug",
-      "configuration": "Debug"
+      "configurePreset": "x64-debug"
     },
     {
       "name": "x64-release",
-      "configurePreset": "x64-release",
-      "configuration": "Release"
+      "configurePreset": "x64-release"
     },
     {
       "name": "x86-debug",
-      "configurePreset": "x86-debug",
-      "configuration": "Debug"
+      "configurePreset": "x86-debug"
     },
     {
       "name": "x86-release",
-      "configurePreset": "x86-release",
-      "configuration": "Release"
+      "configurePreset": "x86-release"
     },
     {
       "name": "arm64-debug",
-      "configurePreset": "arm64-debug",
-      "configuration": "Debug"
+      "configurePreset": "arm64-debug"
     },
     {
       "name": "arm64-release",
-      "configurePreset": "arm64-release",
-      "configuration": "Release"
+      "configurePreset": "arm64-release"
     }
   ],
   "testPresets": [
     {
       "name": "x64-debug",
       "configurePreset": "x64-debug",
-      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -117,7 +119,6 @@
     {
       "name": "x64-release",
       "configurePreset": "x64-release",
-      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
@@ -125,7 +126,6 @@
     {
       "name": "x86-debug",
       "configurePreset": "x86-debug",
-      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -133,7 +133,6 @@
     {
       "name": "x86-release",
       "configurePreset": "x86-release",
-      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
@@ -141,7 +140,6 @@
     {
       "name": "arm64-debug",
       "configurePreset": "arm64-debug",
-      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }
@@ -149,7 +147,6 @@
     {
       "name": "arm64-release",
       "configurePreset": "arm64-release",
-      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }

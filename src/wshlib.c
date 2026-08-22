@@ -2,6 +2,10 @@
 
 #include <stdio.h>
 
+#ifndef WSH_WCRT_VERSION
+#define WSH_WCRT_VERSION "unavailable"
+#endif
+
 const char *wsh_get_version_string(void)
 {
     return "1.0.0";
@@ -14,7 +18,7 @@ const char *wsh_get_runtime_name(void)
 
 const char *wsh_get_dependency_summary(void)
 {
-    return "wcrt 1.0.0 (statically linked runtime library)";
+    return "wcrt " WSH_WCRT_VERSION " (statically linked runtime library)";
 }
 
 int wsh_print_version(FILE *stream)

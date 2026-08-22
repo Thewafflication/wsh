@@ -50,8 +50,20 @@ adapted, extended, or excluded reference behavior.
 
 ## Build and Test
 
-The checked-in presets build the executable, static/shared library skeletons,
-portable core, and controlled tests. For example:
+The primary presets use the WPM-installed TinyCC and WCRT packages. Install
+the pinned build dependencies once (WPM selects the native TinyCC package):
+
+```powershell
+wpm config set prerelease true --package tinycc
+wpm install tinycc --version 0.9.28-rc.1444+9a4be30f
+wpm install wcrt --arch any --version 1.0.0
+```
+
+The toolchain finds those pinned versions beneath `%ProgramFiles%` and falls
+back to `TCC_HOME` and `WCRT_HOME` for custom installation roots. CMake 3.20 or
+newer and Ninja are also required. The checked-in presets build the executable,
+static/shared library skeletons, portable core, and controlled tests. For
+example:
 
 ```powershell
 cmake --preset x64-debug
@@ -63,8 +75,14 @@ The same test dispatcher has Debug and Release presets for x86, x64, and
 ARM64. Test runs write isolated TeX evidence beneath each build tree and
 validate it through the pinned WSP tools.
 
-GitHub Actions runs source lint and MSVC static analysis before starting the
-three-architecture Debug matrix. Each Debug job executes CTest, publishes a
+The x86, x64, and ARM64 presets select TinyCC's architecture-named compiler,
+WCRT's matching headers, static library, and console startup object. Executable
+links omit the host CRT and retain only the matching WCRT and TinyCC compiler-
+support inputs. This is the only supported build path.
+
+GitHub Actions installs the pinned TinyCC/WCRT baseline and runs its warning,
+source-lint, and traceability gates before starting the three-architecture
+Debug matrix. Each Debug job executes CTest, publishes a
 per-test job summary, and retains one downloadable ZIP containing the build
 log, JUnit and CTest results, controlled test evidence, exact binaries and
 symbols, checksums, and an unsigned architecture-specific Debug WPM package.
@@ -75,19 +93,12 @@ Successful x86, x64, and ARM64 Release builds become WPM packages in the
 corresponding GitHub release. WPM clients consume the published `index.json`;
 the release also includes an identical `repository.json` compatibility asset.
 
-## Planned Release Toolchain
+## Release Toolchain
 
-Dependencies will be installed through WPM and pinned before the first release
-baseline:
-
-```powershell
-wpm install wcrt --arch <x86|x64|arm64> --version <version>
-wpm install kertex --arch <architecture> --version <version>
-wpm install cv2pdb --arch <architecture> --version <version>
-```
-
-Release dependency pinning and the remaining cross-version matrix are tracked
-as historical M1 evidence gaps and later hardening work. CTest remains the
+CI provisions TinyCC `0.9.28-rc.1444+9a4be30f` and WCRT `1.0.0` through WPM
+before every architecture build. The dependency script verifies the durable
+WPM release key before installing either package. KerTeX and cv2pdb remain
+separate documentation and symbol-tool dependencies. CTest remains the
 top-level test dispatcher.
 
 ## Project Process

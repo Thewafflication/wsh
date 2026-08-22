@@ -15,6 +15,18 @@
 #include <windows.h>
 #endif
 
+#if defined(_WIN32)
+/** Compare two NUL-terminated Windows strings without a host CRT dependency. */
+static int wide_strings_equal(const wchar_t *left, const wchar_t *right)
+{
+    while (*left != L'\0' && *left == *right) {
+        ++left;
+        ++right;
+    }
+    return *left == *right;
+}
+#endif
+
 /** Print one objective failed expression and leave the case immediately. */
 #define CHECK(expression) \
     do { \
@@ -1296,11 +1308,11 @@ static int test_tc_0075(void)
         environment_after,
         64U);
     CHECK(directory_before_length == directory_after_length);
-    CHECK(wcscmp(directory_before, directory_after) == 0);
+    CHECK(wide_strings_equal(directory_before, directory_after));
     CHECK(environment_before_length == environment_after_length);
     if (environment_before_length != 0U &&
         environment_before_length < 64U) {
-        CHECK(wcscmp(environment_before, environment_after) == 0);
+        CHECK(wide_strings_equal(environment_before, environment_after));
     }
     CHECK(input_code_page == GetConsoleCP());
     CHECK(output_code_page == GetConsoleOutputCP());

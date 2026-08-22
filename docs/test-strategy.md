@@ -43,13 +43,13 @@ OS equivalence classes require analysis of API, console, filesystem, registry,
 job, and loader differences. Emulation is identified and never reported as
 native evidence.
 
-Normal CI first runs source lint, traceability validation, Doxygen warnings as
-errors, and MSVC static analysis. Only that gate can start the x86, x64, and
-native ARM64 Debug matrix. Each Debug entry builds, runs the complete
-architecture-dependent CTest suite, validates controlled evidence, and builds
-an architecture-specific Debug WPM package. A semantic-version tag can start
-the corresponding three Release builds only after every Debug entry passes.
-Release publication requires all three Release WPM packages.
+Normal CI first builds with TinyCC warnings as errors and runs source lint,
+traceability validation, and Doxygen warnings as errors. Only that gate can
+start the x86, x64, and native ARM64 Debug matrix. Each Debug entry runs the
+complete architecture-dependent CTest suite, validates controlled evidence,
+and builds an architecture-specific Debug WPM package. A semantic-version tag
+can start the corresponding three Release builds only after every Debug entry
+passes. Release publication requires all three Release WPM packages.
 
 ## 5. Test Design
 

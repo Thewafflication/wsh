@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   source-quality:
-    name: Lint and static analysis
+    name: Source quality
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
@@ -28,6 +28,30 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+
+      - name: Use isolated WPM data directory
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Install WPM
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
+          Invoke-WebRequest -UseBasicParsing `
+            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+            -OutFile $installer
+          & $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+          $wpm = Join-Path $wpmDirectory 'wpm.exe'
+          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
+            throw "WPM installation did not produce $wpm."
+          }
+          $wpmDirectory >> $env:GITHUB_PATH
+
+      - name: Install pinned TinyCC and WCRT
+        shell: pwsh
+        run: ./tools/Install-BuildDependencies.ps1 -Architecture x64
 
       - name: Install Doxygen
         shell: pwsh
@@ -39,36 +63,33 @@ jobs:
           ./wsp/tools/tests/run-tests.ps1
           $global:LASTEXITCODE = 0
 
-      - name: Configure MSVC analysis build
+      - name: Configure source-quality build
         shell: pwsh
         run: |
           cmake --preset x64-debug `
-            -B out/build/static-analysis `
-            -DWSH_ENABLE_SOURCE_QUALITY_TESTS=ON `
-            '-DCMAKE_C_FLAGS=/analyze'
+            -B out/build/source-quality `
+            -DWSH_ENABLE_SOURCE_QUALITY_TESTS=ON
 
-      - name: Run MSVC static analysis
-        id: analysis
+      - name: Build with TinyCC warnings
+        id: quality_build
         continue-on-error: true
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force out/logs | Out-Null
-          cmake --build out/build/static-analysis `
-            --config Debug `
+          cmake --build out/build/source-quality `
             --target wsh wsh_shared 2>&1 |
-            Tee-Object out/logs/static-analysis-build.log
+            Tee-Object out/logs/source-quality-build.log
           exit $LASTEXITCODE
 
       - name: Run traceability and source lint
-        if: steps.analysis.outcome == 'success'
+        if: steps.quality_build.outcome == 'success'
         id: quality_tests
         continue-on-error: true
         shell: pwsh
         run: |
           $junit = Join-Path $env:GITHUB_WORKSPACE `
-            'out/build/static-analysis/quality-results.xml'
-          ctest --test-dir out/build/static-analysis `
-            -C Debug `
+            'out/build/source-quality/quality-results.xml'
+          ctest --test-dir out/build/source-quality `
             -R '^(m2|m3)-(traceability|source-quality)$' `
             --output-on-failure `
             --output-junit $junit `
@@ -82,11 +103,11 @@ jobs:
           ./tools/New-CiEvidenceArchive.ps1 `
             -Architecture x64 `
             -Configuration Debug `
-            -BuildDirectory out/build/static-analysis `
+            -BuildDirectory out/build/source-quality `
             -SourceRevision '${{ github.sha }}' `
-            -BuildLog out/logs/static-analysis-build.log `
+            -BuildLog out/logs/source-quality-build.log `
             -TestLog out/logs/source-quality-test.log `
-            -JUnitPath out/build/static-analysis/quality-results.xml `
+            -JUnitPath out/build/source-quality/quality-results.xml `
             -OutputPath out/artifacts/wsh-source-quality-${{ github.sha }}.zip
 
       - name: Upload source-quality evidence
@@ -106,19 +127,19 @@ jobs:
         run: |
           ./tools/Write-CiTestSummary.ps1 `
             -Architecture x64 `
-            -Configuration 'Source quality and static analysis' `
-            -BuildOutcome '${{ steps.analysis.outcome }}' `
+            -Configuration 'Source quality' `
+            -BuildOutcome '${{ steps.quality_build.outcome }}' `
             -TestOutcome '${{ steps.quality_tests.outcome }}' `
-            -JUnitPath out/build/static-analysis/quality-results.xml `
+            -JUnitPath out/build/source-quality/quality-results.xml `
             -EvidenceArtifactUrl '${{ steps.upload_quality.outputs.artifact-url }}'
 
       - name: Enforce source-quality gate
         if: >-
           always() &&
-          (steps.analysis.outcome != 'success' ||
+          (steps.quality_build.outcome != 'success' ||
           steps.quality_tests.outcome != 'success')
         shell: pwsh
-        run: throw 'Source lint or MSVC static analysis failed.'
+        run: throw 'Source-quality build or lint failed.'
 
   debug:
     name: ${{ matrix.arch }} Debug
@@ -157,6 +178,30 @@ jobs:
             throw "ARM64 tests require a native ARM64 runner; got $env:RUNNER_ARCH."
           }
 
+      - name: Use isolated WPM data directory
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Install WPM
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
+          Invoke-WebRequest -UseBasicParsing `
+            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+            -OutFile $installer
+          & $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+          $wpm = Join-Path $wpmDirectory 'wpm.exe'
+          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
+            throw "WPM installation did not produce $wpm."
+          }
+          $wpmDirectory >> $env:GITHUB_PATH
+
+      - name: Install pinned TinyCC and WCRT
+        shell: pwsh
+        run: ./tools/Install-BuildDependencies.ps1 -Architecture '${{ matrix.arch }}'
+
       - name: Configure Debug
         shell: pwsh
         run: >-
@@ -187,32 +232,8 @@ jobs:
             Tee-Object 'out/logs/${{ matrix.arch }}-debug-test.log'
           exit $LASTEXITCODE
 
-      - name: Use isolated WPM data directory
-        if: steps.build.outcome == 'success'
-        shell: pwsh
-        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
-
-      - name: Install WPM
-        if: steps.build.outcome == 'success'
-        id: install_wpm
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
-          Invoke-WebRequest -UseBasicParsing `
-            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
-            -OutFile $installer
-          & $installer
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
-          $wpm = Join-Path $wpmDirectory 'wpm.exe'
-          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
-            throw "WPM installation did not produce $wpm."
-          }
-          $wpmDirectory >> $env:GITHUB_PATH
-
       - name: Build Debug WPM package
-        if: steps.install_wpm.outcome == 'success'
+        if: steps.build.outcome == 'success'
         id: package
         continue-on-error: true
         shell: pwsh
@@ -277,7 +298,6 @@ jobs:
           always() &&
           (steps.build.outcome != 'success' ||
           steps.tests.outcome != 'success' ||
-          steps.install_wpm.outcome != 'success' ||
           steps.package.outcome != 'success')
         shell: pwsh
         run: throw '${{ matrix.arch }} Debug verification or packaging failed.'
@@ -327,6 +347,30 @@ jobs:
           if ($env:RUNNER_ARCH -ne 'ARM64') {
             throw "ARM64 builds require a native ARM64 runner; got $env:RUNNER_ARCH."
           }
+
+      - name: Use isolated WPM data directory
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Install WPM
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'install-wpm.cmd'
+          Invoke-WebRequest -UseBasicParsing `
+            'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+            -OutFile $installer
+          & $installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+          $wpm = Join-Path $wpmDirectory 'wpm.exe'
+          if (-not (Test-Path -LiteralPath $wpm -PathType Leaf)) {
+            throw "WPM installation did not produce $wpm."
+          }
+          $wpmDirectory >> $env:GITHUB_PATH
+
+      - name: Install pinned TinyCC and WCRT
+        shell: pwsh
+        run: ./tools/Install-BuildDependencies.ps1 -Architecture '${{ matrix.arch }}'
 
       - name: Configure Release
         shell: pwsh
@@ -420,7 +464,9 @@ jobs:
               -Architecture $architecture `
               -Configuration Release `
               -Version '${{ github.ref_name }}' `
-              -BuildDirectory "out/release-builds/$architecture"
+              -BuildDirectory "out/release-builds/$architecture" `
+              -TinyCcVersion '0.9.28-rc.1444+9a4be30f' `
+              -WcrtVersion '1.0.0'
           }
 
       - name: Upload complete Release WPM package set

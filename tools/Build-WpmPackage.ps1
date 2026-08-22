@@ -14,6 +14,8 @@ param(
     [Parameter(Mandatory)]
     [string]$BuildDirectory,
 
+    [string]$TinyCcVersion,
+    [string]$WcrtVersion,
     [string]$Wpm = 'wpm.exe',
     [string]$SigningKey,
     [string]$OutputDirectory = 'out/packages'
@@ -32,6 +34,24 @@ function Resolve-ProjectPath {
     return [IO.Path]::GetFullPath((Join-Path $repositoryRoot $Path))
 }
 
+function Get-CMakeCacheValue {
+    param(
+        [Parameter(Mandatory)][string]$CachePath,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if (-not (Test-Path -LiteralPath $CachePath -PathType Leaf)) {
+        return $null
+    }
+    $entry = Get-Content -LiteralPath $CachePath |
+        Where-Object { $_ -match "^$([regex]::Escape($Name)):[^=]+=" } |
+        Select-Object -First 1
+    if ($null -eq $entry) {
+        return $null
+    }
+    ($entry -split '=', 2)[1]
+}
+
 $packageVersion = $Version -replace '^v', ''
 $semanticVersion =
     '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'
@@ -40,6 +60,15 @@ if ($packageVersion -notmatch $semanticVersion) {
 }
 
 $resolvedBuildDirectory = Resolve-ProjectPath $BuildDirectory
+$cmakeCache = Join-Path $resolvedBuildDirectory 'CMakeCache.txt'
+if ([string]::IsNullOrWhiteSpace($TinyCcVersion)) {
+    $TinyCcVersion = Get-CMakeCacheValue -CachePath $cmakeCache `
+        -Name 'WSH_TINYCC_VERSION'
+}
+if ([string]::IsNullOrWhiteSpace($WcrtVersion)) {
+    $WcrtVersion = Get-CMakeCacheValue -CachePath $cmakeCache `
+        -Name 'WSH_WCRT_VERSION'
+}
 $binaryDirectory = Join-Path $resolvedBuildDirectory $Configuration
 $executable = Join-Path $binaryDirectory 'wsh.exe'
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
@@ -88,6 +117,12 @@ $metadata = @(
     "source-version=$Version"
     "source-revision=$sourceRevision"
 )
+if (-not [string]::IsNullOrWhiteSpace($TinyCcVersion)) {
+    $metadata += "tinycc-version=$TinyCcVersion"
+}
+if (-not [string]::IsNullOrWhiteSpace($WcrtVersion)) {
+    $metadata += "wcrt-version=$WcrtVersion"
+}
 $metadataPath = Join-Path $metadataDirectory 'package.txt'
 Set-Content -LiteralPath $metadataPath -Value $metadata -Encoding ascii
 Set-Content -LiteralPath (Join-Path $metadataDirectory 'wpmignore.txt') `

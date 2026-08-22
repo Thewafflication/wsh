@@ -13,28 +13,11 @@ target_include_directories(
         "${CMAKE_SOURCE_DIR}/include"
 )
 target_link_libraries(parser-tests PRIVATE wsh_core)
+wsh_configure_executable(portable-core-tests)
+wsh_configure_executable(parser-tests)
 
-if(MSVC)
-    target_compile_options(portable-core-tests PRIVATE /W4 /WX)
-    target_compile_options(parser-tests PRIVATE /W4 /WX)
-else()
-    target_compile_options(
-        portable-core-tests
-        PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Werror
-    )
-    target_compile_options(
-        parser-tests
-        PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Werror
-    )
-endif()
+set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
+set(WSH_TEST_TARGET_ARCHITECTURE "${WSH_TARGET_ARCHITECTURE}")
 
 add_test(NAME version-smoke COMMAND wsh --version)
 set_tests_properties(
@@ -130,8 +113,8 @@ foreach(test_id IN LISTS WSH_M2_TEST_IDS)
             -RepositoryRoot "${CMAKE_SOURCE_DIR}"
             -Configuration "$<CONFIG>"
             -Toolchain
-                "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
-            -TargetArchitecture "${CMAKE_GENERATOR_PLATFORM}"
+                "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
     )
     set_tests_properties(
         "${test_name}"
@@ -225,8 +208,8 @@ foreach(test_id IN LISTS WSH_M3_TEST_IDS)
             -RepositoryRoot "${CMAKE_SOURCE_DIR}"
             -Configuration "$<CONFIG>"
             -Toolchain
-                "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}"
-            -TargetArchitecture "${CMAKE_GENERATOR_PLATFORM}"
+                "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
     )
     set_tests_properties(
         "${test_name}"

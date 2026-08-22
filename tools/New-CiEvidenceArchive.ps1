@@ -36,6 +36,24 @@ function Resolve-ProjectPath {
     return [IO.Path]::GetFullPath((Join-Path $repositoryRoot $Path))
 }
 
+function Get-CMakeCacheValue {
+    param(
+        [Parameter(Mandatory)][string]$CachePath,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if (-not (Test-Path -LiteralPath $CachePath -PathType Leaf)) {
+        return $null
+    }
+    $entry = Get-Content -LiteralPath $CachePath |
+        Where-Object { $_ -match "^$([regex]::Escape($Name)):[^=]+=" } |
+        Select-Object -First 1
+    if ($null -eq $entry) {
+        return $null
+    }
+    ($entry -split '=', 2)[1]
+}
+
 function Copy-OptionalFile {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -67,6 +85,16 @@ function Copy-OptionalDirectory {
 
 $resolvedBuildDirectory = Resolve-ProjectPath $BuildDirectory
 $resolvedOutputPath = Resolve-ProjectPath $OutputPath
+$cmakeCache = Join-Path $resolvedBuildDirectory 'CMakeCache.txt'
+$tinyCcVersion = Get-CMakeCacheValue -CachePath $cmakeCache `
+    -Name 'WSH_TINYCC_VERSION'
+$wcrtVersion = Get-CMakeCacheValue -CachePath $cmakeCache `
+    -Name 'WSH_WCRT_VERSION'
+$toolchain = if (-not [string]::IsNullOrWhiteSpace($tinyCcVersion)) {
+    "TinyCC $tinyCcVersion / WCRT $wcrtVersion"
+} else {
+    'TinyCC / WCRT (version metadata unavailable)'
+}
 $archiveName = [IO.Path]::GetFileNameWithoutExtension($resolvedOutputPath)
 $staging = Join-Path $repositoryRoot "out/ci-evidence/$archiveName"
 if (Test-Path -LiteralPath $staging) {
@@ -156,7 +184,9 @@ $metadata = [ordered]@{
     sourceRevision = $SourceRevision
     architecture = $Architecture
     configuration = $Configuration
-    toolchain = 'MSVC / Visual Studio 2022'
+    toolchain = $toolchain
+    tinyCcVersion = $tinyCcVersion
+    wcrtVersion = $wcrtVersion
     runnerArchitecture = $env:RUNNER_ARCH
     runnerName = $env:RUNNER_NAME
     runnerOperatingSystem = $env:RUNNER_OS
