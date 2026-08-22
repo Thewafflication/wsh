@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0048}
+\def\TCTitle{Variable identity and export collision}
+\def\TCPurpose{Verify M4 identity semantics for WSH-REQ-0048.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0048}
+\def\TCDesignRef{M4 design: State, Scope, and Functions}
+\def\TCFeatureRef{Case-sensitive private and Windows-insensitive exported names}
+\def\TCTestTechnique{Equivalence-partition testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Fake Windows-name comparator.}
+\def\TCAssumptions{Private names use byte-exact identity.}
+\def\TCInputData{Names differing only by ASCII case.}
+\def\TCInitialState{Two private distinct bindings.}
+\def\TCProcedure{Export each name and inspect result and state.}
+\def\TCExpectedResult{Private bindings coexist; the second colliding export is
+rejected without changing metadata.}
+\def\TCPostConditions{Only the first binding is exported.}
+\TCTemplate
+\end{document}

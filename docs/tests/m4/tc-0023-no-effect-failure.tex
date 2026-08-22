@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0023}
+\def\TCTitle{No-effect semantic failure}
+\def\TCPurpose{Verify M4 failure atomicity for WSH-REQ-0023.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0023}
+\def\TCDesignRef{M4 design: Boundary and Ownership}
+\def\TCFeatureRef{Pre-effect command preparation}
+\def\TCTestTechnique{Negative and state-transition testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{A call-counting fake runtime.}
+\def\TCAssumptions{M3 already rejected malformed syntax.}
+\def\TCInputData{Expansion, substitution, and unsupported-node failures.}
+\def\TCInitialState{Known variables and no runtime calls.}
+\def\TCProcedure{Evaluate each failure and compare state and call counts.}
+\def\TCExpectedResult{No affected assignment or runtime request occurs.}
+\def\TCPostConditions{State equals its pre-command snapshot.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0049}
+\def\TCTitle{Status values and propagation}
+\def\TCPurpose{Verify M4 status representation for WSH-REQ-0049.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0049}
+\def\TCDesignRef{M4 design: Status and Control}
+\def\TCFeatureRef{Unsigned status lists and status variable}
+\def\TCTestTechnique{Boundary and propagation testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Scripted multi-element statuses.}
+\def\TCAssumptions{Every command publishes a nonempty status.}
+\def\TCInputData{Zero, maximum unsigned, and multi-element statuses.}
+\def\TCInitialState{A fresh isolated context.}
+\def\TCProcedure{Evaluate commands/functions and inspect output and $status.}
+\def\TCExpectedResult{Unsigned decimal elements and truth are exact.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

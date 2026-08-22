@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0052}
+\def\TCTitle{Command substitution capture and failure}
+\def\TCPurpose{Verify M4 substitution semantics for WSH-REQ-0052.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0052}
+\def\TCDesignRef{M4 design: Evaluation Model}
+\def\TCFeatureRef{UTF-8 capture, IFS splitting, and failure propagation}
+\def\TCTestTechnique{Partition and negative testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{A capturing scripted runtime.}
+\def\TCAssumptions{$ifs is a Unicode scalar separator set.}
+\def\TCInputData{Empty, separated, supplementary, and failed output.}
+\def\TCInitialState{No outer launch requests.}
+\def\TCProcedure{Evaluate substitutions inside commands and inspect requests.}
+\def\TCExpectedResult{Successful output splits exactly; failed substitution
+prevents the outer request.}
+\def\TCPostConditions{Capture frames are released.}
+\TCTemplate
+\end{document}

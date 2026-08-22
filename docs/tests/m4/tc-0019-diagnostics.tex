@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0019}
+\def\TCTitle{Semantic diagnostic locations}
+\def\TCPurpose{Verify M4 diagnostics for WSH-REQ-0019.}
+\def\TCPriority{\TCPriorityMedium}
+\def\TCRequirementRef{WSH-REQ-0019}
+\def\TCDesignRef{M4 design: Limits and Diagnostics}
+\def\TCFeatureRef{Source-named span-bearing evaluator diagnostics}
+\def\TCTestTechnique{Error-injection inspection.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Deterministic fake runtime.}
+\def\TCAssumptions{M3 spans are immutable.}
+\def\TCInputData{An invalid caret cardinality at a known source range.}
+\def\TCInitialState{A context with no diagnostics.}
+\def\TCProcedure{Evaluate and inspect the retained diagnostic.}
+\def\TCExpectedResult{The code, source name, severity, and span identify the
+failure.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

@@ -250,17 +250,17 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Use the M2 portable core and M3 immutable AST as the sole foundation for M4
-   evaluation, variables, expansion, functions, and control-flow work.
-2. Keep M4 deterministic behind the abstract fake runtime; real filesystem,
-   environment, console, registry, handle, pipeline, and process effects
-   remain outside the evaluator milestone.
+1. Use the completed M4 evaluator and abstract-runtime request contract as the
+   sole semantic foundation for M5 Windows process composition.
+2. Implement M5 resolution, environment, process, descriptor, pipeline, job,
+   and process-substitution adapters without moving Win32 behavior into the
+   portable evaluator.
 3. Retain the M0/M1 retrospective logs and M2 evidence. Close the historical
    M1 dependency, x86-oldest-host, PE/import, DWARF, and release-PDF evidence
    gaps before a later release claim depends on them.
-4. Preserve M3's syntax-status partition, source spans, AST ownership,
-   allocation-failure behavior, and resource limits rather than reparsing text
-   or introducing evaluator-local syntax.
+4. Preserve M4's no-effect preparation failures, structured argument lists,
+   status ordering, subshell isolation, scope restoration, and evaluator
+   limits at every M5 operating-system boundary.
 
 ## References
 

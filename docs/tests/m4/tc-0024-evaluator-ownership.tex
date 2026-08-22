@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0024}
+\def\TCTitle{Evaluator ownership and allocator failure}
+\def\TCPurpose{Verify M4 cleanup for WSH-REQ-0024.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0024}
+\def\TCDesignRef{M4 design: Boundary and Ownership}
+\def\TCFeatureRef{Evaluator, function, scope, value, and status ownership}
+\def\TCTestTechnique{Ordinal fault-injection sweep.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Counting fail-after allocator.}
+\def\TCAssumptions{Allocation callbacks are deterministic.}
+\def\TCInputData{A semantic scenario with functions and substitutions.}
+\def\TCInitialState{No outstanding allocations.}
+\def\TCProcedure{Fail each allocation ordinal and destroy all published owners.}
+\def\TCExpectedResult{Every path is leak-free and leaves no partial effect.}
+\def\TCPostConditions{Outstanding allocation count is zero.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0043}
+\def\TCTitle{Source and eval contexts}
+\def\TCPurpose{Verify M4 source isolation rules for WSH-REQ-0043.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0043}
+\def\TCDesignRef{M4 design: State, Scope, and Functions}
+\def\TCFeatureRef{source, eval, and explicit WSH launch boundary}
+\def\TCTestTechnique{State-transition testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{A scripted source-reading runtime.}
+\def\TCAssumptions{Returned source is strict UTF-8.}
+\def\TCInputData{Sourced assignments, eval text, and an explicit .wsh name.}
+\def\TCInitialState{Known caller variables.}
+\def\TCProcedure{Evaluate each form and inspect state and runtime requests.}
+\def\TCExpectedResult{source and eval share caller state; explicit WSH is a
+launch request.}
+\def\TCPostConditions{Local sourced bindings are restored.}
+\TCTemplate
+\end{document}

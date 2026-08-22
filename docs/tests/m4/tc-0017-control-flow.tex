@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0017}
+\def\TCTitle{Functions and structured control flow}
+\def\TCPurpose{Verify M4 execution of WSH-REQ-0017 constructs.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0017}
+\def\TCDesignRef{M4 design: Status and Control}
+\def\TCFeatureRef{Functions, if, while, for, switch, transfer}
+\def\TCTestTechnique{Scenario and control-flow testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Deterministic fake runtime.}
+\def\TCAssumptions{Illegal transfers are semantic errors.}
+\def\TCInputData{Nested functions, loops, cases, and transfer commands.}
+\def\TCInitialState{A fresh evaluator.}
+\def\TCProcedure{Evaluate each construct and inspect state and calls.}
+\def\TCExpectedResult{Branches, iteration, functions, and legal transfer are
+deterministic and scoped.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

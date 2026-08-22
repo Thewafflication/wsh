@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0046}
+\def\TCTitle{Assignment, scope, and export}
+\def\TCPurpose{Verify M4 variable publication for WSH-REQ-0046.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0046}
+\def\TCDesignRef{M4 design: State, Scope, and Functions}
+\def\TCFeatureRef{Private assignment, local scope, export, command-local state}
+\def\TCTestTechnique{State-transition testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Deterministic fake runtime.}
+\def\TCAssumptions{Imported variables begin exported.}
+\def\TCInputData{Assignments before, inside, and after dynamic scopes.}
+\def\TCInitialState{Known private and exported bindings.}
+\def\TCProcedure{Evaluate scope and export operations and inspect metadata.}
+\def\TCExpectedResult{New values are private, local and command-local state is
+restored, and only explicit export changes boundary metadata.}
+\def\TCPostConditions{Caller bindings equal expected state.}
+\TCTemplate
+\end{document}

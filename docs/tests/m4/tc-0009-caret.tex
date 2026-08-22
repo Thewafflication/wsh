@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0009}
+\def\TCTitle{Caret list distribution}
+\def\TCPurpose{Verify M4 concatenation semantics for WSH-REQ-0009.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0009}
+\def\TCDesignRef{M4 design: Evaluation Model}
+\def\TCFeatureRef{Explicit and free-caret expansion}
+\def\TCTestTechnique{Decision-table testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Deterministic fake runtime.}
+\def\TCAssumptions{Both caret spellings share one AST semantic node.}
+\def\TCInputData{Equal, singleton, empty, and mismatched cardinalities.}
+\def\TCInitialState{A fresh isolated context.}
+\def\TCProcedure{Evaluate each cardinality partition.}
+\def\TCExpectedResult{Pairing and singleton distribution are exact; invalid
+mismatch fails before effects.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}

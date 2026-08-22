@@ -6,6 +6,7 @@
 
 #include "frontend.h"
 #include "wsh/core.h"
+#include "wsh/evaluator.h"
 #include "wsh/wsh.h"
 
 #include <stdio.h>
@@ -60,6 +61,20 @@ typedef struct wsh_stream_writer {
     /** Nonzero when handle accepts WriteConsoleW. */
     int is_console;
 } wsh_stream_writer;
+
+/** Runtime adapter and diagnostic cursor for one front-end evaluator. */
+typedef struct wsh_main_evaluation {
+    /** Evaluator retained across interactive commands. */
+    wsh_evaluator *evaluator;
+    /** Context that owns variables and diagnostics. */
+    wsh_context *context;
+    /** Borrowed normal-output writer. */
+    wsh_stream_writer *output;
+    /** Borrowed diagnostic-output writer. */
+    wsh_stream_writer *error;
+    /** First diagnostic not yet displayed. */
+    size_t next_diagnostic;
+} wsh_main_evaluation;
 
 /** Print concise command usage to the selected stream. */
 static void usage(FILE *stream, const char *program_name)
@@ -337,6 +352,104 @@ static int write_stream(void *user_data, const char *bytes, size_t length)
     return 0;
 }
 
+/** Adapt evaluator write requests to the selected front-end stream. */
+static wsh_result invoke_frontend_runtime(
+    void *user_data,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_main_evaluation *evaluation;
+    wsh_string_view text;
+
+    (void)output;
+    evaluation = (wsh_main_evaluation *)user_data;
+    if (evaluation == NULL || request == NULL || status == NULL) {
+        return WSH_ERR_INVALID;
+    }
+    if (request->operation != WSH_RUNTIME_WRITE ||
+        !wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("stdout")) ||
+        request->arguments == NULL ||
+        wsh_value_count(request->arguments) != 1U ||
+        wsh_value_at(request->arguments, 0U, &text) != WSH_OK) {
+        return WSH_ERR_INVALID;
+    }
+    if (write_stream(evaluation->output, text.data, text.length) != 0) {
+        return WSH_ERR_INTERNAL;
+    }
+    return wsh_status_builder_append(status, 0U);
+}
+
+/** Display newly retained evaluator diagnostics. */
+static void write_evaluation_diagnostics(wsh_main_evaluation *evaluation)
+{
+    wsh_diagnostic_view diagnostic;
+    char prefix[192];
+    int length;
+
+    while (evaluation->next_diagnostic <
+        wsh_context_diagnostic_count(evaluation->context)) {
+        if (wsh_context_diagnostic_at(
+                evaluation->context,
+                evaluation->next_diagnostic,
+                &diagnostic) != WSH_OK) {
+            return;
+        }
+        evaluation->next_diagnostic += 1U;
+        if (diagnostic.has_span) {
+            length = snprintf(
+                prefix,
+                sizeof(prefix),
+                "wsh: %lu:%lu: ",
+                (unsigned long)diagnostic.span.start.line,
+                (unsigned long)diagnostic.span.start.scalar_column);
+        } else {
+            length = snprintf(prefix, sizeof(prefix), "wsh: ");
+        }
+        if (length > 0 && (size_t)length < sizeof(prefix)) {
+            (void)write_stream(evaluation->error, prefix, (size_t)length);
+        }
+        (void)write_stream(
+            evaluation->error,
+            diagnostic.message.data,
+            diagnostic.message.length);
+        (void)write_stream(evaluation->error, "\n", 1U);
+    }
+}
+
+/** Evaluate one complete front-end tree and return its process-style status. */
+static int evaluate_frontend_tree(
+    void *user_data,
+    const wsh_parse_tree *tree)
+{
+    wsh_main_evaluation *evaluation;
+    wsh_status_list *status;
+    wsh_result result;
+    size_t index;
+    uint32_t code;
+    uint32_t exit_code;
+
+    evaluation = (wsh_main_evaluation *)user_data;
+    status = NULL;
+    result = wsh_evaluate(evaluation->evaluator, tree, &status);
+    write_evaluation_diagnostics(evaluation);
+    if (result != WSH_OK) {
+        wsh_status_list_destroy(status);
+        return result == WSH_ERR_RESOURCE ? 4 : 1;
+    }
+    exit_code = 0U;
+    for (index = 0U; index < wsh_status_list_count(status); ++index) {
+        if (wsh_status_list_at(status, index, &code) == WSH_OK &&
+            exit_code == 0U && code != 0U) {
+            exit_code = code;
+        }
+    }
+    wsh_status_list_destroy(status);
+    return (int)exit_code;
+}
+
 /** Run standard input in the selected batch or interactive mode. */
 static int run_standard_input(int interactive)
 {
@@ -349,6 +462,10 @@ static int run_standard_input(int interactive)
     wsh_stream_writer error_writer;
     wsh_frontend_options options;
     wsh_frontend_io io;
+    wsh_main_evaluation evaluation;
+    wsh_context_options context_options;
+    wsh_evaluator_options evaluator_options;
+    wsh_runtime runtime;
     DWORD original_input_mode;
     DWORD input_mode;
     int restore_input_mode;
@@ -360,6 +477,7 @@ static int run_standard_input(int interactive)
     memset(&file_reader, 0, sizeof(file_reader));
     memset(&console_reader, 0, sizeof(console_reader));
     memset(&io, 0, sizeof(io));
+    memset(&evaluation, 0, sizeof(evaluation));
     restore_input_mode = 0;
 
     if (interactive) {
@@ -393,10 +511,37 @@ static int run_standard_input(int interactive)
     io.write_output = write_stream;
     io.error_data = &error_writer;
     io.write_error = write_stream;
+    evaluation.output = &output_writer;
+    evaluation.error = &error_writer;
+    memset(&runtime, 0, sizeof(runtime));
+    runtime.user_data = &evaluation;
+    runtime.invoke = invoke_frontend_runtime;
+    wsh_context_options_init(&context_options);
+    context_options.runtime = runtime;
+    if (wsh_context_create(
+            &context_options, &evaluation.context) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
+    wsh_evaluator_options_init(&evaluator_options);
+    evaluator_options.source_name = wsh_string_view_from_cstr(
+        interactive ? "wsh" : "stdin");
+    if (wsh_evaluator_create(
+            evaluation.context,
+            &evaluator_options,
+            &evaluation.evaluator) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
+    io.evaluation_data = &evaluation;
+    io.evaluate = evaluate_frontend_tree;
     wsh_frontend_options_init(&options);
     options.interactive = interactive;
     result = wsh_frontend_run(&options, &io);
 
+cleanup:
+    wsh_evaluator_destroy(evaluation.evaluator);
+    wsh_context_destroy(evaluation.context);
     free(file_reader.bytes);
     free(console_reader.units);
     wsh_allocator_release(&console_reader.allocator, console_reader.bytes);

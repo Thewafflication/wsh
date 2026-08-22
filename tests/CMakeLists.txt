@@ -14,6 +14,14 @@ target_include_directories(
 )
 target_link_libraries(parser-tests PRIVATE wsh_core)
 
+add_executable(evaluator-tests evaluator_tests.c)
+target_include_directories(
+    evaluator-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(evaluator-tests PRIVATE wsh_core)
+
 add_executable(
     frontend-tests
     frontend_tests.c
@@ -28,6 +36,7 @@ target_include_directories(
 target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
+wsh_configure_executable(evaluator-tests)
 wsh_configure_executable(frontend-tests)
 
 set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
@@ -51,6 +60,9 @@ set_tests_properties(
 
 add_test(NAME frontend-unit COMMAND frontend-tests)
 set_tests_properties(frontend-unit PROPERTIES LABELS "interactive;unit")
+
+add_test(NAME evaluator-unit COMMAND evaluator-tests)
+set_tests_properties(evaluator-unit PROPERTIES LABELS "M4;unit")
 
 find_program(
     WSH_POWERSHELL_EXECUTABLE
@@ -267,4 +279,98 @@ set_tests_properties(
     PROPERTIES
         DEPENDS "${WSH_M3_CTEST_NAMES}"
         LABELS "M3;quality"
+)
+
+set(WSH_M4_TEST_IDS
+    0007
+    0009
+    0014
+    0017
+    0019
+    0023
+    0024
+    0037
+    0043
+    0046
+    0048
+    0049
+    0052
+    0074
+    0075
+)
+
+add_test(
+    NAME m4-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m4"
+        -TestSpecificationsPath "docs/tests/m4"
+        -TestImplementationsPath "tests/m4"
+)
+set_tests_properties(m4-traceability PROPERTIES LABELS "M4;quality")
+
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m4-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m4-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m4-source-quality
+        PROPERTIES
+            DEPENDS m4-traceability
+            LABELS "M4;quality"
+    )
+endif()
+
+set(WSH_M4_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M4_TEST_IDS)
+    set(test_name "m4-TC-${test_id}")
+    list(APPEND WSH_M4_CTEST_NAMES "${test_name}")
+    add_test(
+        NAME "${test_name}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File
+                "${CMAKE_CURRENT_SOURCE_DIR}/m4/run-tc-${test_id}-m4.ps1"
+            -TestCase "TC-${test_id}"
+            -Executable "$<TARGET_FILE:evaluator-tests>"
+            -EvidenceDirectory
+                "${CMAKE_BINARY_DIR}/test-evidence/m4/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
+    )
+    set_tests_properties(
+        "${test_name}"
+        PROPERTIES
+            DEPENDS m4-traceability
+            LABELS "M4;controlled"
+    )
+endforeach()
+
+add_test(
+    NAME m4-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory
+            "${CMAKE_BINARY_DIR}/test-evidence/m4/$<CONFIG>/current"
+        -ExpectedCount 15
+)
+set_tests_properties(
+    m4-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M4_CTEST_NAMES}"
+        LABELS "M4;quality"
 )

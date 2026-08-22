@@ -11,8 +11,9 @@ variables, consoles, and handles.
 
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
-M1 repository skeleton, M2 portable core, and M3 lexer/parser are implemented.
-Evaluation and Windows process behavior remain allocated to later milestones.
+M1 repository skeleton, M2 portable core, M3 lexer/parser, and M4 language
+evaluator are implemented. Real Windows process composition remains allocated
+to M5.
 
 ## Install
 
@@ -53,9 +54,12 @@ Use `--interactive` (`-i`) to require console input or `--non-interactive`
 (`-I`) to suppress interactive behavior. Redirected standard input is selected
 as batch input automatically and never receives prompts.
 
-The current front end delivers each complete immutable parse tree across the
-evaluator boundary. Until the planned evaluator milestone is implemented,
-accepted commands have no runtime effects.
+The current front end evaluates each complete immutable parse tree. Variables,
+lists, expansion, functions, structured control flow, `source`, `eval`, status,
+pattern matching, and `echo` are active. External commands, filesystem glob
+enumeration, pipelines, redirections, background jobs, and process
+substitution still require the planned M5 Windows runtime; their semantic
+requests are mediated or rejected without implicit command-interpreter use.
 
 ## Project Goals
 

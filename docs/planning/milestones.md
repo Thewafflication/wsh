@@ -196,12 +196,17 @@ the release receives explicit approval.
 | M1 | Historically complete at `b8d1e67`; evidence gaps retained | `docs/milestones/m01-work-log.md` |
 | M2 | Complete on 2026-08-11; Windows CI added | `docs/milestones/m02-closeout.md`, `docs/milestones/m02-ci-log.md` |
 | M3 | Complete on 2026-08-12 | `docs/milestones/m03-closeout.md`, `docs/milestones/m03-work-log.md` |
+| M4 | Complete on 2026-08-22 | `docs/milestones/m04-closeout.md`, `docs/milestones/m04-work-log.md` |
 
 **M3 recalibration (2026-08-12):** The 132k reconstructed M3 estimate is 12
 percent below its 150k control budget. Parser failure atomicity, source
 equivalence, and controlled evidence matched the recalibrated complexity
 forecast, so M4--M10 budgets and the 1,510,000-token roadmap total remain
 unchanged. Recalibration will run again after M5 as planned.
+
+**M4 checkpoint (2026-08-22):** The reconstructed M4 estimate remains within
+its accepted 160k control budget. The roadmap stays at 1,510,000 tokens and
+the scheduled recalibration remains after M5.
 
 ## 6. Cross-Milestone Controls
 

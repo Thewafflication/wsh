@@ -143,7 +143,9 @@ typedef enum wsh_runtime_operation {
     /** Query a deterministic clock value. */
     WSH_RUNTIME_CLOCK = 4,
     /** Query or update environment-boundary state. */
-    WSH_RUNTIME_ENVIRONMENT = 5
+    WSH_RUNTIME_ENVIRONMENT = 5,
+    /** Return candidate filesystem paths for one unquoted pattern. */
+    WSH_RUNTIME_MATCH_PATHS = 6
 } wsh_runtime_operation;
 
 /** One immutable request crossing the runtime boundary. */
@@ -200,7 +202,13 @@ typedef enum wsh_diagnostic_code {
     /** Abstract runtime operation failed or mismatched. */
     WSH_DIAGNOSTIC_RUNTIME = 1004,
     /** Caller supplied an invalid core argument. */
-    WSH_DIAGNOSTIC_INVALID_ARGUMENT = 1005
+    WSH_DIAGNOSTIC_INVALID_ARGUMENT = 1005,
+    /** Evaluator rejected a semantic operation. */
+    WSH_DIAGNOSTIC_EVALUATION = 3001,
+    /** Expansion or substitution could not produce a bounded value. */
+    WSH_DIAGNOSTIC_EXPANSION = 3002,
+    /** A control transfer was invalid in the current dynamic context. */
+    WSH_DIAGNOSTIC_CONTROL = 3003
 } wsh_diagnostic_code;
 
 /** Borrowed diagnostic data owned by a context. */
@@ -713,6 +721,32 @@ wsh_result wsh_context_is_exported(
 size_t wsh_context_variable_count(const wsh_context *context);
 
 /**
+ * Inspect one variable in deterministic insertion order.
+ * @param context Context owner.
+ * @param index Zero-based variable index.
+ * @param out_name Receives the borrowed exact name.
+ * @param out_value Receives the borrowed flat value.
+ * @param out_exported Receives zero or one.
+ * @return WSH_OK or WSH_ERR_INVALID for an invalid index.
+ */
+wsh_result wsh_context_variable_at(
+    const wsh_context *context,
+    size_t index,
+    wsh_string_view *out_name,
+    const wsh_value **out_value,
+    int *out_exported);
+
+/**
+ * Copy the allocator, limits, and runtime used by a context.
+ * @param context Context owner.
+ * @param out_options Receives copied options.
+ * @return WSH_OK or WSH_ERR_INVALID.
+ */
+wsh_result wsh_context_get_options(
+    const wsh_context *context,
+    wsh_context_options *out_options);
+
+/**
  * Add one bounded structured diagnostic by copying its text.
  * @param context Context owner.
  * @param severity Diagnostic severity.
@@ -802,6 +836,26 @@ wsh_result wsh_fake_runtime_expect(
     wsh_fake_runtime *fake,
     wsh_runtime_operation operation,
     wsh_string_view subject,
+    const wsh_value *output,
+    const wsh_status_list *status,
+    wsh_result result);
+
+/**
+ * Append an expectation that also requires exact structured arguments.
+ * @param fake Fake owner.
+ * @param operation Expected operation category.
+ * @param subject Expected byte-exact subject.
+ * @param arguments Required byte-exact ordered arguments.
+ * @param output Optional scripted output value.
+ * @param status Optional scripted status list.
+ * @param result Result returned after scripted output is copied.
+ * @return WSH_OK or an argument/resource error.
+ */
+wsh_result wsh_fake_runtime_expect_arguments(
+    wsh_fake_runtime *fake,
+    wsh_runtime_operation operation,
+    wsh_string_view subject,
+    const wsh_value *arguments,
     const wsh_value *output,
     const wsh_status_list *status,
     wsh_result result);

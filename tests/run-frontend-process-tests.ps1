@@ -38,9 +38,10 @@ function Invoke-RedirectedWsh {
 }
 
 $automatic = Invoke-RedirectedWsh -Arguments '' -InputText "echo ok`n"
-if ($automatic.ExitCode -ne 0 -or $automatic.Stdout -ne '' -or
+if ($automatic.ExitCode -ne 0 -or
+    $automatic.Stdout -notin @("ok`n", "ok`r`n") -or
     $automatic.Stderr -ne '') {
-    throw "redirected stdin was not selected as quiet batch input"
+    throw "redirected stdin did not evaluate through the M4 write runtime"
 }
 
 $syntax = Invoke-RedirectedWsh `

@@ -96,4 +96,20 @@ controlled conformance, malformed-input, ownership, limits, source-
 equivalence, and fuzz evidence. Runtime meaning remains assigned to M4 and M5;
 an accepted M3 parse is not an execution-compatibility claim.
 
+## 5. M4 Semantic Verification Record
+
+M4 did not change an accepted compatibility disposition. The evaluator
+implements the adopted list, quotation-result, caret, variable, subscript,
+count, flatten, status, conditional, function, block, loop, switch, source,
+eval, pattern, and substitution meanings. Windows adaptations remain explicit:
+unsigned status elements, case-sensitive private names, collision-checked
+export identity, scalar ordinary-program exports, semantic context cloning,
+and abstract runtime requests instead of Unix process effects.
+
+`TC-0007`, `TC-0009`, `TC-0014`, `TC-0017`, `TC-0037`, `TC-0043`,
+`TC-0046`, `TC-0048`, `TC-0049`, and `TC-0052` provide controlled semantic
+evidence. M5 retains process resolution, environment serialization, real
+filesystem enumeration, redirection, pipelines, background jobs, and process
+substitution; M4 makes no execution-compatibility claim for those rows.
+
 [rc]: https://9fans.github.io/plan9port/man/man1/rc.html

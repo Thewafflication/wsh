@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0075}
+\def\TCTitle{Evaluator DFS controls}
+\def\TCPurpose{Verify M4 security controls for WSH-REQ-0075.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0075}
+\def\TCDesignRef{M4 design: Compatibility and Security Review}
+\def\TCFeatureRef{Mediated effects, subshell isolation, and explicit rejection}
+\def\TCTestTechnique{Abuse-case and security-boundary testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Call-counting fake runtime.}
+\def\TCAssumptions{No production evaluator source imports an OS API.}
+\def\TCInputData{Subshell mutations and M5-owned effect syntax.}
+\def\TCInitialState{Known caller state and no runtime calls.}
+\def\TCProcedure{Evaluate abuse cases and inspect state, calls, and diagnostics.}
+\def\TCExpectedResult{State is isolated, allowed effects are mediated, and
+unsupported effects are rejected before runtime.}
+\def\TCPostConditions{Caller state is unchanged where isolation applies.}
+\TCTemplate
+\end{document}

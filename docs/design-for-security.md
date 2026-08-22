@@ -131,6 +131,23 @@ deterministically replayed generated inputs. `TC-0010`, `TC-0051`, and
 substitutions remain inert syntax. Evaluation, capture, named pipes, launch,
 and other effects remain assigned to M4 and M5.
 
+### 6.3 M4 Evaluator Control Record
+
+M4 implements hostile-semantics controls before an operating-system adapter
+exists. Only complete immutable M3 ASTs enter evaluation. Expansion, function
+recursion, loops, captures, list growth, diagnostics, and abstract-runtime
+calls have finite ceilings. Subshells use isolated context/function clones.
+Failed expansion and command substitution suppress the containing request,
+and M5-owned redirection, pipeline, background, and process-substitution nodes
+are rejected explicitly.
+
+`TC-0023`, `TC-0024`, `TC-0052`, `TC-0074`, and `TC-0075` cover no-effect
+failure, every evaluator allocation ordinal through success, substitution
+propagation, hostile loop bounds, semantic isolation, and effect mediation.
+The evaluator is portable C99 and imports no Windows API. Real path
+enumeration, environment publication, process launch, handles, named pipes,
+jobs, and child containment remain assigned to M5.
+
 ## 7. Secure Failure and Recovery
 
 Parsing and launch preparation fail before effect. Partially started pipelines

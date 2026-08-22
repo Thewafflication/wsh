@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(wsh VERSION 1.1.0 LANGUAGES C)
+project(wsh VERSION 1.2.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -74,6 +74,7 @@ endfunction()
 add_compile_options(-std=c99 -Wall -Werror)
 
 add_library(wsh_core STATIC
+    src/evaluator.c
     src/parser.c
     src/portable_core.c
 )

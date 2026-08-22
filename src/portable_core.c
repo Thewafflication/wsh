@@ -160,6 +160,10 @@ typedef struct wsh_fake_expectation {
     wsh_runtime_operation operation;
     /** Owned expected subject. */
     wsh_string *subject;
+    /** Optional owned exact expected arguments. */
+    wsh_value *arguments;
+    /** Nonzero when arguments must compare exactly. */
+    int compare_arguments;
     /** Owned scripted output. */
     wsh_value *output;
     /** Owned scripted statuses. */
@@ -864,6 +868,24 @@ static wsh_result append_status_to_builder(
     return WSH_OK;
 }
 
+/** Compare two flat values byte-for-byte in order. */
+static int values_equal(const wsh_value *left, const wsh_value *right)
+{
+    size_t index;
+
+    if (left == NULL || right == NULL || left->count != right->count) {
+        return 0;
+    }
+    for (index = 0U; index < left->count; ++index) {
+        if (!wsh_string_view_equal(
+                wsh_string_bytes(left->items[index]),
+                wsh_string_bytes(right->items[index]))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /** Runtime callback used by the deterministic fake. */
 static wsh_result fake_runtime_invoke(
     void *user_data,
@@ -886,7 +908,9 @@ static wsh_result fake_runtime_invoke(
     if (expectation->operation != request->operation ||
         !wsh_string_view_equal(
             wsh_string_bytes(expectation->subject),
-            request->subject)) {
+            request->subject) ||
+        (expectation->compare_arguments &&
+         !values_equal(expectation->arguments, request->arguments))) {
         return WSH_ERR_MISMATCH;
     }
     if (expectation->result != WSH_OK) {
@@ -2228,6 +2252,38 @@ size_t wsh_context_variable_count(const wsh_context *context)
     return context == NULL ? 0U : context->variable_count;
 }
 
+/** @brief Implements wsh_context_variable_at. */
+wsh_result wsh_context_variable_at(
+    const wsh_context *context,
+    size_t index,
+    wsh_string_view *out_name,
+    const wsh_value **out_value,
+    int *out_exported)
+{
+    if (context == NULL || out_name == NULL || out_value == NULL ||
+        out_exported == NULL || index >= context->variable_count) {
+        return WSH_ERR_INVALID;
+    }
+    *out_name = wsh_string_bytes(context->variables[index].name);
+    *out_value = context->variables[index].value;
+    *out_exported = context->variables[index].exported;
+    return WSH_OK;
+}
+
+/** @brief Implements wsh_context_get_options. */
+wsh_result wsh_context_get_options(
+    const wsh_context *context,
+    wsh_context_options *out_options)
+{
+    if (context == NULL || out_options == NULL) {
+        return WSH_ERR_INVALID;
+    }
+    out_options->allocator = context->allocator;
+    out_options->limits = context->limits;
+    out_options->runtime = context->runtime;
+    return WSH_OK;
+}
+
 /** @brief Implements wsh_context_add_diagnostic. */
 wsh_result wsh_context_add_diagnostic(
     wsh_context *context,
@@ -2346,7 +2402,7 @@ wsh_result wsh_context_runtime_invoke(
         return WSH_ERR_RESOURCE;
     }
     if (request->operation < WSH_RUNTIME_READ_SOURCE ||
-        request->operation > WSH_RUNTIME_ENVIRONMENT) {
+        request->operation > WSH_RUNTIME_MATCH_PATHS) {
         return WSH_ERR_INVALID;
     }
     result = wsh_utf8_validate(request->subject, NULL);
@@ -2439,6 +2495,7 @@ static void destroy_fake_expectation(wsh_fake_expectation *expectation)
         return;
     }
     wsh_string_destroy(expectation->subject);
+    wsh_value_destroy(expectation->arguments);
     wsh_value_destroy(expectation->output);
     wsh_status_list_destroy(expectation->status);
     memset(expectation, 0, sizeof(*expectation));
@@ -2520,11 +2577,31 @@ wsh_result wsh_fake_runtime_expect(
     const wsh_status_list *status,
     wsh_result result_code)
 {
+    return wsh_fake_runtime_expect_arguments(
+        fake,
+        operation,
+        subject,
+        NULL,
+        output,
+        status,
+        result_code);
+}
+
+/** @brief Implements wsh_fake_runtime_expect_arguments. */
+wsh_result wsh_fake_runtime_expect_arguments(
+    wsh_fake_runtime *fake,
+    wsh_runtime_operation operation,
+    wsh_string_view subject,
+    const wsh_value *arguments,
+    const wsh_value *output,
+    const wsh_status_list *status,
+    wsh_result result_code)
+{
     wsh_fake_expectation expectation;
     wsh_result result;
 
     if (fake == NULL || operation < WSH_RUNTIME_READ_SOURCE ||
-        operation > WSH_RUNTIME_ENVIRONMENT) {
+        operation > WSH_RUNTIME_MATCH_PATHS) {
         return WSH_ERR_INVALID;
     }
     if (fake->expectation_count >= fake->limits.max_runtime_expectations) {
@@ -2540,6 +2617,18 @@ wsh_result wsh_fake_runtime_expect(
         &expectation.subject);
     if (result != WSH_OK) {
         return result;
+    }
+    if (arguments != NULL) {
+        result = clone_value_internal(
+            &fake->allocator,
+            &fake->limits,
+            arguments,
+            &expectation.arguments);
+        if (result != WSH_OK) {
+            destroy_fake_expectation(&expectation);
+            return result;
+        }
+        expectation.compare_arguments = 1;
     }
     if (output == NULL) {
         result = create_empty_value(

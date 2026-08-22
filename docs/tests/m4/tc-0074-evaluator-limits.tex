@@ -1,0 +1,23 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0074}
+\def\TCTitle{Evaluator hostile-input limits}
+\def\TCPurpose{Verify M4 bounds for WSH-REQ-0074.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0074}
+\def\TCDesignRef{M4 design: Limits and Diagnostics}
+\def\TCFeatureRef{Step, recursion, expansion, glob, capture, and call ceilings}
+\def\TCTestTechnique{Boundary-value and adversarial testing.}
+\def\TCPreconditions{The evaluator test executable is built.}
+\def\TCEnvironment{Low configured ceilings and fake runtime.}
+\def\TCAssumptions{All limits are finite and nonzero.}
+\def\TCInputData{Recursive functions, loops, and expanding values.}
+\def\TCInitialState{A fresh limited evaluator.}
+\def\TCProcedure{Exercise at-limit and one-over-limit cases.}
+\def\TCExpectedResult{At-limit work succeeds and excess fails before an
+unbounded allocation or effect.}
+\def\TCPostConditions{All owners are destroyed.}
+\TCTemplate
+\end{document}
