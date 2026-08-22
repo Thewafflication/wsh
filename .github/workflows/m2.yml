@@ -55,7 +55,15 @@ jobs:
 
       - name: Install Doxygen
         shell: pwsh
-        run: choco install doxygen.install --no-progress --yes
+        run: |
+          choco install doxygen.install --no-progress --yes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $doxygenDirectory = Join-Path $env:ProgramFiles 'doxygen\bin'
+          $doxygen = Join-Path $doxygenDirectory 'doxygen.exe'
+          if (-not (Test-Path -LiteralPath $doxygen -PathType Leaf)) {
+            throw "Doxygen installation did not produce $doxygen."
+          }
+          $doxygenDirectory >> $env:GITHUB_PATH
 
       - name: Verify pinned WSP tools
         shell: pwsh
