@@ -20,10 +20,12 @@ set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
 set(WSH_TEST_TARGET_ARCHITECTURE "${WSH_TARGET_ARCHITECTURE}")
 
 add_test(NAME version-smoke COMMAND wsh --version)
+string(REPLACE "." "\\." WSH_TEST_VERSION_PATTERN "${PROJECT_VERSION}")
 set_tests_properties(
     version-smoke
     PROPERTIES
-        PASS_REGULAR_EXPRESSION "Waughtal Shell.*Version 1\\.0\\.0"
+        PASS_REGULAR_EXPRESSION
+            "Waughtal Shell.*Version ${WSH_TEST_VERSION_PATTERN}"
 )
 
 add_test(NAME print-abi-smoke COMMAND wsh --print-abi)

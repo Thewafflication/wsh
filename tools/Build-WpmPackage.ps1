@@ -180,13 +180,17 @@ try {
         $entries[$entry.FullName.Replace('\', '/')] = $entry.Length
     }
 
-    foreach ($requiredEntry in @(
+    $requiredEntries = @(
         'wsh.exe',
         '.wpm/package.txt',
         '.wpm/install.cmd',
         '.wpm/remove.cmd',
         '.wpm/index.csv'
-    )) {
+    )
+    if (-not [string]::IsNullOrWhiteSpace($SigningKey)) {
+        $requiredEntries += '.wpm/signature.json'
+    }
+    foreach ($requiredEntry in $requiredEntries) {
         if (-not $entries.ContainsKey($requiredEntry) -or
             $entries[$requiredEntry] -eq 0) {
             throw "WPM package is missing a required entry: $requiredEntry"

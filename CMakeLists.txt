@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(wsh VERSION 1.0.0 LANGUAGES C)
+project(wsh VERSION 1.0.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -116,8 +116,10 @@ target_link_libraries(wsh_static PUBLIC wsh_core)
 target_link_libraries(wsh_shared PUBLIC wsh_core)
 
 target_compile_definitions(wsh_static PRIVATE
+    WSH_VERSION="${PROJECT_VERSION}"
     WSH_WCRT_VERSION="${WSH_WCRT_VERSION}")
 target_compile_definitions(wsh_shared PRIVATE
+    WSH_VERSION="${PROJECT_VERSION}"
     WSH_WCRT_VERSION="${WSH_WCRT_VERSION}")
 
 add_executable(wsh src/main.c)

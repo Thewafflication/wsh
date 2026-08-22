@@ -2,13 +2,17 @@
 
 #include <stdio.h>
 
+#ifndef WSH_VERSION
+#define WSH_VERSION "unavailable"
+#endif
+
 #ifndef WSH_WCRT_VERSION
 #define WSH_WCRT_VERSION "unavailable"
 #endif
 
 const char *wsh_get_version_string(void)
 {
-    return "1.0.0";
+    return WSH_VERSION;
 }
 
 const char *wsh_get_runtime_name(void)

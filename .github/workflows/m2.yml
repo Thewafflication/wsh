@@ -250,7 +250,7 @@ jobs:
           ./tools/Build-WpmPackage.ps1 `
             -Architecture '${{ matrix.arch }}' `
             -Configuration Debug `
-            -Version "1.0.0+$shortRevision" `
+            -Version "1.0.1+$shortRevision" `
             -BuildDirectory '${{ matrix.build_directory }}'
 
       - name: Collect Debug build and test evidence
@@ -464,17 +464,44 @@ jobs:
           }
           $wpmDirectory >> $env:GITHUB_PATH
 
-      - name: Build Release WPM packages
+      - name: Build and verify signed Release WPM packages
         shell: pwsh
+        env:
+          WPM_PRIVATE_KEY: ${{ secrets.WPM_RELEASE_PRIVATE_KEY }}
         run: |
-          foreach ($architecture in @('x86', 'x64', 'arm64')) {
-            ./tools/Build-WpmPackage.ps1 `
-              -Architecture $architecture `
-              -Configuration Release `
-              -Version '${{ github.ref_name }}' `
-              -BuildDirectory "out/release-builds/$architecture" `
-              -TinyCcVersion '0.9.28-rc.1444+9a4be30f' `
-              -WcrtVersion '1.0.0'
+          if ([string]::IsNullOrWhiteSpace($env:WPM_PRIVATE_KEY)) {
+            throw 'Tagged releases require the WPM_RELEASE_PRIVATE_KEY secret.'
+          }
+          $keyPath = Join-Path $env:RUNNER_TEMP 'wsh-release.private'
+          try {
+            [IO.File]::WriteAllText($keyPath, $env:WPM_PRIVATE_KEY)
+            foreach ($architecture in @('x86', 'x64', 'arm64')) {
+              ./tools/Build-WpmPackage.ps1 `
+                -Architecture $architecture `
+                -Configuration Release `
+                -Version '${{ github.ref_name }}' `
+                -BuildDirectory "out/release-builds/$architecture" `
+                -TinyCcVersion '0.9.28-rc.1444+9a4be30f' `
+                -WcrtVersion '1.0.0' `
+                -SigningKey $keyPath
+            }
+
+            wpm trust add release_keys/wpm-release.public
+            if ($LASTEXITCODE -ne 0) {
+              throw 'WPM failed to trust the release public key.'
+            }
+            $packages = @(Get-ChildItem out/packages/wsh-*.zip -File)
+            if ($packages.Count -ne 3) {
+              throw "Expected three signed Release packages; found $($packages.Count)."
+            }
+            foreach ($package in $packages) {
+              wpm verify $package.FullName
+              if ($LASTEXITCODE -ne 0) {
+                throw "WPM signature verification failed: $($package.Name)"
+              }
+            }
+          } finally {
+            Remove-Item $keyPath -Force -ErrorAction SilentlyContinue
           }
 
       - name: Upload complete Release WPM package set
@@ -518,9 +545,11 @@ jobs:
           name: wsh-release-packages
           path: release-assets
 
-      - name: Create WPM repository indexes
+      - name: Create WPM repository assets
         shell: pwsh
         run: |
+          Copy-Item release_keys/wpm-release.public `
+            release-assets/wpm-release.public
           ./tools/New-WpmRepositoryIndex.ps1 `
             -PackageDirectory release-assets `
             -OutputDirectory release-assets `

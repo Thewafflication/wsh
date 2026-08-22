@@ -14,6 +14,33 @@ completed the M0 baseline review and form the accepted project baseline. The
 M1 repository skeleton and M2 portable core are implemented. Lexer, parser,
 evaluator, and Windows process behavior remain allocated to later milestones.
 
+## Install
+
+With [WPM] installed, open an elevated PowerShell session, add the latest WSH
+release as a package repository, and install the package for the current
+Windows architecture:
+
+```powershell
+Invoke-WebRequest `
+  https://github.com/Thewafflication/wsh/releases/latest/download/wpm-release.public `
+  -OutFile wpm-release.public
+wpm trust add wpm-release.public
+wpm repo add https://github.com/Thewafflication/wsh/releases/latest/download
+wpm update
+wpm install wsh
+```
+
+Use `--arch x86`, `--arch x64`, or `--arch arm64` to select an architecture
+explicitly. The package installs WSH beneath `%ProgramFiles%` and sets the
+machine-level `WSH_HOME` variable. Open a new terminal and verify the install:
+
+```powershell
+& "$env:WSH_HOME\wsh.exe" --version
+```
+
+Release packages are signed with the published WPM release key and accompanied
+by `SHA256SUMS` on the [latest release].
+
 ## Project Goals
 
 - Target Windows without requiring a POSIX compatibility layer.
@@ -50,20 +77,19 @@ adapted, extended, or excluded reference behavior.
 
 ## Build and Test
 
-The primary presets use the WPM-installed TinyCC and WCRT packages. Install
-the pinned build dependencies once (WPM selects the native TinyCC package):
+The primary presets use WPM-installed TinyCC and WCRT packages. From an
+elevated PowerShell session, install the project-pinned build dependencies for
+the target architecture:
 
 ```powershell
-wpm config set prerelease true --package tinycc
-wpm install tinycc --version 0.9.28-rc.1444+9a4be30f
-wpm install wcrt --arch any --version 1.0.0
+./tools/Install-BuildDependencies.ps1 -Architecture x64
 ```
 
-The toolchain finds those pinned versions beneath `%ProgramFiles%` and falls
-back to `TCC_HOME` and `WCRT_HOME` for custom installation roots. CMake 3.20 or
-newer and Ninja are also required. The checked-in presets build the executable,
-static/shared library skeletons, portable core, and controlled tests. For
-example:
+Replace `x64` with `x86` or `arm64` as needed. The toolchain finds the pinned
+dependencies beneath `%ProgramFiles%` and falls back to `TCC_HOME` and
+`WCRT_HOME` for custom installation roots. CMake 3.20 or newer and Ninja are
+also required. The checked-in presets build the executable, static/shared
+library skeletons, portable core, and controlled tests. For example:
 
 ```powershell
 cmake --preset x64-debug
@@ -95,11 +121,11 @@ the release also includes an identical `repository.json` compatibility asset.
 
 ## Release Toolchain
 
-CI provisions TinyCC `0.9.28-rc.1444+9a4be30f` and WCRT `1.0.0` through WPM
-before every architecture build. The dependency script verifies the durable
-WPM release key before installing either package. KerTeX and cv2pdb remain
-separate documentation and symbol-tool dependencies. CTest remains the
-top-level test dispatcher.
+CI provisions the project-pinned TinyCC and WCRT packages through WPM before
+every architecture build. The dependency script verifies the durable WPM
+release key before installing either package. KerTeX and cv2pdb remain separate
+documentation and symbol-tool dependencies. CTest remains the top-level test
+dispatcher.
 
 ## Project Process
 
@@ -135,3 +161,5 @@ Project-owned source files should use:
 [architecture decisions]: docs/adr-0001-rc-inspired-windows-language.md
 [adoption record]: docs/adoption-record.md
 [rc-manual]: https://9fans.github.io/plan9port/man/man1/rc.html
+[WPM]: https://github.com/Thewafflication/wpm
+[latest release]: https://github.com/Thewafflication/wsh/releases/latest
