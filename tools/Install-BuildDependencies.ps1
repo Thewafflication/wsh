@@ -17,7 +17,7 @@ $wcrtRelease =
     "https://github.com/Thewafflication/wcrt/releases/download/$WcrtVersion"
 $releaseKey = Join-Path $env:TEMP 'wsh-build-wpm-release.public'
 $releaseKeySha256 =
-    '81eba415ad604016193f875eb041e10252c39d31b3543ac6172330595952cb59'
+    'e141a5f383b8d2e7096080beb2920b37a007de727d1c8ff47a520453460f23a6'
 
 Invoke-WebRequest -UseBasicParsing "$wcrtRelease/wpm-release.public" `
     -OutFile $releaseKey
