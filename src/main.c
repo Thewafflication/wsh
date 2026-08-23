@@ -970,6 +970,76 @@ static int append_argument_unit(
     return 1;
 }
 
+/** Convert one strict UTF-16 command-line argument to owned UTF-8. */
+static int command_line_argument_to_utf8(
+    const uint16_t *units,
+    size_t length,
+    char **out_argument)
+{
+    size_t capacity;
+    size_t input_index;
+    size_t output_index;
+    uint32_t scalar;
+    uint16_t unit;
+    uint16_t low;
+    char *bytes;
+
+    *out_argument = NULL;
+    if (length > ((size_t)-1 - 1U) / 3U) {
+        return 0;
+    }
+    capacity = length * 3U + 1U;
+    bytes = (char *)malloc(capacity);
+    if (bytes == NULL) {
+        return 0;
+    }
+    input_index = 0U;
+    output_index = 0U;
+    while (input_index < length) {
+        unit = units[input_index++];
+        if (unit >= 0xD800U && unit <= 0xDBFFU) {
+            if (input_index == length) {
+                free(bytes);
+                return 0;
+            }
+            low = units[input_index++];
+            if (low < 0xDC00U || low > 0xDFFFU) {
+                free(bytes);
+                return 0;
+            }
+            scalar = 0x10000U +
+                (((uint32_t)unit - 0xD800U) << 10U) +
+                ((uint32_t)low - 0xDC00U);
+        } else if (unit >= 0xDC00U && unit <= 0xDFFFU) {
+            free(bytes);
+            return 0;
+        } else {
+            scalar = unit;
+        }
+        if (scalar <= 0x7FU) {
+            bytes[output_index++] = (char)scalar;
+        } else if (scalar <= 0x7FFU) {
+            bytes[output_index++] = (char)(0xC0U | (scalar >> 6U));
+            bytes[output_index++] = (char)(0x80U | (scalar & 0x3FU));
+        } else if (scalar <= 0xFFFFU) {
+            bytes[output_index++] = (char)(0xE0U | (scalar >> 12U));
+            bytes[output_index++] =
+                (char)(0x80U | ((scalar >> 6U) & 0x3FU));
+            bytes[output_index++] = (char)(0x80U | (scalar & 0x3FU));
+        } else {
+            bytes[output_index++] = (char)(0xF0U | (scalar >> 18U));
+            bytes[output_index++] =
+                (char)(0x80U | ((scalar >> 12U) & 0x3FU));
+            bytes[output_index++] =
+                (char)(0x80U | ((scalar >> 6U) & 0x3FU));
+            bytes[output_index++] = (char)(0x80U | (scalar & 0x3FU));
+        }
+    }
+    bytes[output_index] = '\0';
+    *out_argument = bytes;
+    return 1;
+}
+
 /** Parse GetCommandLineW with the Microsoft C-runtime quoting algorithm. */
 static int parse_wide_arguments(int *out_count, char ***out_arguments)
 {
@@ -981,13 +1051,10 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
     size_t wide_length;
     size_t wide_capacity;
     char *argument;
-    size_t argument_length;
     char **arguments;
     size_t count;
     size_t capacity;
     char **replacement;
-    wsh_allocator allocator;
-    wsh_result result;
 
     *out_count = 0;
     *out_arguments = NULL;
@@ -996,7 +1063,6 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
     arguments = NULL;
     count = 0U;
     capacity = 0U;
-    allocator = wsh_allocator_default();
     while (command_line[offset] != 0U) {
         while (command_line[offset] == L' ' ||
                command_line[offset] == L'\t') {
@@ -1078,17 +1144,12 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
             }
         }
         argument = NULL;
-        result = wsh_utf16_to_utf8(
-            &allocator,
-            NULL,
-            wide_argument,
-            wide_length,
-            &argument,
-            &argument_length);
-        free(wide_argument);
-        if (result != WSH_OK) {
+        if (!command_line_argument_to_utf8(
+                wide_argument, wide_length, &argument)) {
+            free(wide_argument);
             goto failure;
         }
+        free(wide_argument);
         if (count == capacity) {
             size_t next;
 
@@ -1096,7 +1157,7 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
             replacement = (char **)realloc(
                 arguments, next * sizeof(*arguments));
             if (replacement == NULL) {
-                wsh_allocator_release(&allocator, argument);
+                free(argument);
                 goto failure;
             }
             arguments = replacement;
@@ -1111,7 +1172,7 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
 failure:
     while (count != 0U) {
         count -= 1U;
-        wsh_allocator_release(&allocator, arguments[count]);
+        free(arguments[count]);
     }
     free(arguments);
     return 0;
@@ -1120,12 +1181,9 @@ failure:
 /** Release strict UTF-8 arguments created from GetCommandLineW. */
 static void destroy_arguments(int count, char **arguments)
 {
-    wsh_allocator allocator;
-
-    allocator = wsh_allocator_default();
     while (count > 0) {
         count -= 1;
-        wsh_allocator_release(&allocator, arguments[count]);
+        free(arguments[count]);
     }
     free(arguments);
 }

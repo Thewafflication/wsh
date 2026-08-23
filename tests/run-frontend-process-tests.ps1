@@ -9,7 +9,8 @@ $ErrorActionPreference = 'Stop'
 function Invoke-RedirectedWsh {
     param(
         [string]$Arguments,
-        [string]$InputText
+        [string]$InputText,
+        [ValidateRange(1, 2147483)][int]$TimeoutSeconds = 110
     )
 
     $start = [Diagnostics.ProcessStartInfo]::new()
@@ -24,9 +25,18 @@ function Invoke-RedirectedWsh {
     try {
         $process.StandardInput.Write($InputText)
         $process.StandardInput.Close()
-        $stdout = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
-        $process.WaitForExit()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try {
+                $process.Kill($true)
+            } catch {
+                # Preserve the timeout result if the process exited concurrently.
+            }
+            throw "WSH timed out after $TimeoutSeconds seconds: $Arguments"
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
         return [pscustomobject]@{
             ExitCode = $process.ExitCode
             Stdout = $stdout
@@ -35,6 +45,15 @@ function Invoke-RedirectedWsh {
     } finally {
         $process.Dispose()
     }
+}
+
+$unicode = Invoke-RedirectedWsh `
+    -Arguments '-c "echo snowman-☃"' `
+    -InputText ''
+if ($unicode.ExitCode -ne 0 -or
+    $unicode.Stdout -notin @("snowman-☃`n", "snowman-☃`r`n") -or
+    $unicode.Stderr -ne '') {
+    throw 'wide command-line input did not round-trip as strict UTF-8'
 }
 
 $automatic = Invoke-RedirectedWsh -Arguments '' -InputText "echo ok`n"
