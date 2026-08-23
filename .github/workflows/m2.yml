@@ -226,6 +226,64 @@ jobs:
             Tee-Object 'out/logs/${{ matrix.arch }}-debug-build.log'
           exit $LASTEXITCODE
 
+      - name: Capture ARM64 startup backtrace with GDB
+        if: matrix.arch == 'arm64' && steps.build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $gdb = (Get-Command gdb -ErrorAction Stop).Source
+          & $gdb --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $executable = (Resolve-Path `
+            '${{ matrix.build_directory }}/Debug/wsh.exe').Path
+          $start = [Diagnostics.ProcessStartInfo]::new()
+          $start.FileName = $executable
+          $start.Arguments = '--version'
+          $start.UseShellExecute = $false
+          $start.CreateNoWindow = $true
+          $start.RedirectStandardOutput = $true
+          $start.RedirectStandardError = $true
+          $process = [Diagnostics.Process]::new()
+          $process.StartInfo = $start
+          if (-not $process.Start()) {
+            throw 'Failed to start the ARM64 WSH debugger probe.'
+          }
+          $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+          $stderrTask = $process.StandardError.ReadToEndAsync()
+          try {
+            Start-Sleep -Seconds 5
+            if ($process.HasExited) {
+              throw "WSH exited before GDB attached: $($process.ExitCode)"
+            }
+            $gdbExecutable = $executable.Replace('\', '/')
+            @(
+              'set pagination off'
+              'set confirm off'
+              "file `"$gdbExecutable`""
+              "attach $($process.Id)"
+              'info threads'
+              'thread apply all bt full'
+              'info registers'
+              'x/32i $pc-32'
+              'detach'
+              'quit'
+            ) | Set-Content out/logs/arm64-startup.gdb -Encoding ascii
+            & $gdb -q -batch `
+              -x out/logs/arm64-startup.gdb 2>&1 |
+              Tee-Object out/logs/arm64-startup-gdb.log
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            if (-not $process.HasExited) {
+              $process.Kill($true)
+              $process.WaitForExit()
+            }
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            "WSH stdout:`n$stdout"
+            "WSH stderr:`n$stderr"
+            $process.Dispose()
+          }
+
       - name: Run Debug test suite
         if: steps.build.outcome == 'success'
         id: tests

@@ -942,25 +942,6 @@ static int wsh_main(int argc, char **argv)
     return run_standard_input(input_is_console && !disable_interactive);
 }
 
-#if defined(__aarch64__)
-/** Emit temporary native ARM64 startup diagnostics without using stdio. */
-static void trace_arm64_startup(const char *message, size_t length)
-{
-    HANDLE error_handle;
-    DWORD written;
-
-    error_handle = GetStdHandle(STD_ERROR_HANDLE);
-    if (error_handle != NULL && error_handle != INVALID_HANDLE_VALUE) {
-        WriteFile(error_handle, message, (DWORD)length, &written, NULL);
-    }
-}
-
-#define WSH_TRACE_ARM64(message) \
-    trace_arm64_startup((message), sizeof(message) - 1U)
-#else
-#define WSH_TRACE_ARM64(message) ((void)0)
-#endif
-
 /** Grow one temporary UTF-16 command-line argument. */
 static int append_argument_unit(
     uint16_t **units,
@@ -1075,11 +1056,9 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
     size_t capacity;
     char **replacement;
 
-    WSH_TRACE_ARM64("wsh-startup: parse-enter\n");
     *out_count = 0;
     *out_arguments = NULL;
     command_line = (const uint16_t *)GetCommandLineW();
-    WSH_TRACE_ARM64("wsh-startup: command-line\n");
     offset = 0U;
     arguments = NULL;
     count = 0U;
@@ -1092,7 +1071,6 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
         if (command_line[offset] == 0U) {
             break;
         }
-        WSH_TRACE_ARM64("wsh-startup: argument-enter\n");
         wide_argument = NULL;
         wide_length = 0U;
         wide_capacity = 0U;
@@ -1166,13 +1144,11 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
             }
         }
         argument = NULL;
-        WSH_TRACE_ARM64("wsh-startup: argument-parsed\n");
         if (!command_line_argument_to_utf8(
                 wide_argument, wide_length, &argument)) {
             free(wide_argument);
             goto failure;
         }
-        WSH_TRACE_ARM64("wsh-startup: argument-converted\n");
         free(wide_argument);
         if (count == capacity) {
             size_t next;
@@ -1188,9 +1164,7 @@ static int parse_wide_arguments(int *out_count, char ***out_arguments)
             capacity = next;
         }
         arguments[count++] = argument;
-        WSH_TRACE_ARM64("wsh-startup: argument-stored\n");
     }
-    WSH_TRACE_ARM64("wsh-startup: parse-return\n");
     *out_count = (int)count;
     *out_arguments = arguments;
     return 1;
@@ -1221,21 +1195,12 @@ int main(int ignored_count, char **ignored_arguments)
     char **arguments;
     int result;
 
-#if defined(__aarch64__)
-    ExitProcess(42U);
-    return 42;
-#endif
     (void)ignored_count;
     (void)ignored_arguments;
-    WSH_TRACE_ARM64("wsh-startup: main\n");
     if (!parse_wide_arguments(&count, &arguments) || count == 0) {
-        WSH_TRACE_ARM64("wsh-startup: parse-failed\n");
         return WSH_EXIT_USAGE;
     }
-    WSH_TRACE_ARM64("wsh-startup: dispatch\n");
     result = wsh_main(count, arguments);
-    WSH_TRACE_ARM64("wsh-startup: destroy\n");
     destroy_arguments(count, arguments);
-    WSH_TRACE_ARM64("wsh-startup: return\n");
     return result;
 }
