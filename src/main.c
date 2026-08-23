@@ -1222,6 +1222,7 @@ int main(int ignored_count, char **ignored_arguments)
     int result;
 
 #if defined(__aarch64__)
+    ExitProcess(42U);
     return 42;
 #endif
     (void)ignored_count;
