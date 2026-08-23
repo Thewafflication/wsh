@@ -301,6 +301,28 @@ static int wsh_windows_multiply(
     return 1;
 }
 
+/** Increment one shared 32-bit sequence without a kernel32 import. */
+static LONG wsh_windows_increment(volatile LONG *value)
+{
+#if defined(__aarch64__)
+    LONG observed;
+    LONG desired;
+    LONG actual;
+
+    observed = *value;
+    do {
+        desired = (LONG)((DWORD)observed + 1UL);
+        actual = InterlockedCompareExchange(value, desired, observed);
+        if (actual == observed) {
+            return desired;
+        }
+        observed = actual;
+    } while (1);
+#else
+    return InterlockedIncrement(value);
+#endif
+}
+
 /** Allocate and zero runtime-owned memory. */
 static void *wsh_windows_allocate(
     const wsh_windows_runtime *runtime,
@@ -2952,7 +2974,7 @@ static wsh_result wsh_windows_open_here(
             sizeof(name),
             ".wsh-here-%lu-%lu.tmp",
             (unsigned long)GetCurrentProcessId(),
-            (unsigned long)InterlockedIncrement(&runtime->pipe_sequence));
+            (unsigned long)wsh_windows_increment(&runtime->pipe_sequence));
         if (name_length <= 0 || (size_t)name_length >= sizeof(name)) {
             result = WSH_ERR_INTERNAL;
             break;
@@ -3514,7 +3536,7 @@ static wsh_result wsh_windows_process_substitution(
         "\\\\.\\pipe\\wsh-%lu-%08lx-%ld",
         (unsigned long)GetCurrentProcessId(),
         (unsigned long)(runtime->nonce & 0xffffffffUL),
-        (long)InterlockedIncrement(&runtime->pipe_sequence));
+        (long)wsh_windows_increment(&runtime->pipe_sequence));
     if (path_length <= 0 || (size_t)path_length >= sizeof(path)) {
         return WSH_ERR_INTERNAL;
     }
