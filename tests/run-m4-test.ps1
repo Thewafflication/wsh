@@ -10,6 +10,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+trap {
+    [Console]::Error.WriteLine($_.ToString())
+    exit 1
+}
+. (Join-Path $PSScriptRoot 'Invoke-CapturedProcess.ps1')
 
 function ConvertTo-TexText {
     param([AllowEmptyString()][string]$Value)
@@ -72,9 +77,11 @@ if (Test-Path -LiteralPath $evidencePath) {
 }
 
 $start = [DateTime]::UtcNow
-$captured = @(& $resolvedExecutable $TestCase 2>&1 |
-    ForEach-Object { $_.ToString() })
-$exitCode = $LASTEXITCODE
+$nativeResult = Invoke-CapturedProcess `
+    -FilePath $resolvedExecutable `
+    -ArgumentList @($TestCase)
+$captured = @($nativeResult.Output)
+$exitCode = $nativeResult.ExitCode
 $finish = [DateTime]::UtcNow
 $status = if ($exitCode -eq 0) { 'Pass' } else { 'Fail' }
 $revision = (& git -C $resolvedRepository rev-parse HEAD 2>$null).Trim()
@@ -96,6 +103,7 @@ $sourceInputs = @(
     'src/portable_core.c',
     'tests/CMakeLists.txt',
     'tests/evaluator_tests.c',
+    'tests/Invoke-CapturedProcess.ps1',
     'tests/run-m4-test.ps1',
     "tests/m4/run-tc-$testDigits-m4.ps1",
     "docs/tests/m4/$($specification.Name)")

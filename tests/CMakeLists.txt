@@ -62,6 +62,7 @@ wsh_configure_executable(frontend-tests)
 
 set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
 set(WSH_TEST_TARGET_ARCHITECTURE "${WSH_TARGET_ARCHITECTURE}")
+set(WSH_CONTROLLED_TEST_TIMEOUT 120)
 
 add_test(NAME version-smoke COMMAND wsh --version)
 string(REPLACE "." "\\." WSH_TEST_VERSION_PATTERN "${PROJECT_VERSION}")
@@ -187,6 +188,7 @@ foreach(test_id IN LISTS WSH_M2_TEST_IDS)
         PROPERTIES
             DEPENDS m2-traceability
             LABELS "M2;controlled"
+            TIMEOUT "${WSH_CONTROLLED_TEST_TIMEOUT}"
     )
 endforeach()
 
@@ -282,6 +284,7 @@ foreach(test_id IN LISTS WSH_M3_TEST_IDS)
         PROPERTIES
             DEPENDS m3-traceability
             LABELS "M3;controlled"
+            TIMEOUT "${WSH_CONTROLLED_TEST_TIMEOUT}"
     )
 endforeach()
 
@@ -376,6 +379,7 @@ foreach(test_id IN LISTS WSH_M4_TEST_IDS)
         PROPERTIES
             DEPENDS m4-traceability
             LABELS "M4;controlled"
+            TIMEOUT "${WSH_CONTROLLED_TEST_TIMEOUT}"
     )
 endforeach()
 
@@ -490,6 +494,7 @@ foreach(test_id IN LISTS WSH_M5_TEST_IDS)
         PROPERTIES
             DEPENDS m5-traceability
             LABELS "M5;controlled"
+            TIMEOUT "${WSH_CONTROLLED_TEST_TIMEOUT}"
     )
 endforeach()
 

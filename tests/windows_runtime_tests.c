@@ -370,8 +370,10 @@ static int test_pipeline(test_runtime *runtime, const char *probe)
 static int test_environment(test_runtime *runtime, const char *probe)
 {
     const char *scalar[] = {"value-\xe2\x98\x83"};
+    const char *stress_items[1];
     const char *arguments[] = {"env", "WSH_M5_VALUE"};
     wsh_value *value;
+    wsh_value *stress_value;
     wsh_value *output;
     wsh_status_list *status;
     uint16_t *block;
@@ -379,8 +381,10 @@ static int test_environment(test_runtime *runtime, const char *probe)
     size_t index;
     int found_envelope;
     wsh_allocator allocator;
+    char stress_text[12001];
 
     value = NULL;
+    stress_value = NULL;
     CHECK(make_value(scalar, 1U, &value) == WSH_OK);
     CHECK(wsh_context_set_variable(
         runtime->context,
@@ -398,6 +402,18 @@ static int test_environment(test_runtime *runtime, const char *probe)
     CHECK(wsh_context_unset_variable(
         runtime->context,
         wsh_string_view_from_cstr("wsh_m5_value")) == WSH_OK);
+    memset(stress_text, 'x', sizeof(stress_text) - 1U);
+    stress_text[sizeof(stress_text) - 1U] = '\0';
+    stress_items[0] = stress_text;
+    CHECK(make_value(stress_items, 1U, &stress_value) == WSH_OK);
+    CHECK(wsh_context_set_variable(
+        runtime->context,
+        wsh_string_view_from_cstr("WSH_CI_STRESS"),
+        stress_value) == WSH_OK);
+    CHECK(wsh_context_set_exported(
+        runtime->context,
+        wsh_string_view_from_cstr("WSH_CI_STRESS"),
+        1) == WSH_OK);
     output = NULL;
     status = NULL;
     CHECK(launch_one(
@@ -426,6 +442,7 @@ static int test_environment(test_runtime *runtime, const char *probe)
     CHECK(found_envelope);
     allocator = wsh_allocator_default();
     wsh_allocator_release(&allocator, block);
+    wsh_value_destroy(stress_value);
     wsh_value_destroy(value);
     return 1;
 }

@@ -12,6 +12,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+trap {
+    [Console]::Error.WriteLine($_.ToString())
+    exit 1
+}
+. (Join-Path $PSScriptRoot 'Invoke-CapturedProcess.ps1')
 
 function ConvertTo-TexText {
     param([AllowEmptyString()][string]$Value)
@@ -77,9 +82,11 @@ if (Test-Path -LiteralPath $evidencePath) {
 
 $start = [DateTime]::UtcNow
 $captured = [Collections.Generic.List[string]]::new()
-$nativeOutput = @(& $resolvedExecutable $TestCase $resolvedProbe 2>&1 |
-    ForEach-Object { $_.ToString() })
-$exitCode = $LASTEXITCODE
+$nativeResult = Invoke-CapturedProcess `
+    -FilePath $resolvedExecutable `
+    -ArgumentList @($TestCase, $resolvedProbe)
+$nativeOutput = @($nativeResult.Output)
+$exitCode = $nativeResult.ExitCode
 foreach ($line in $nativeOutput) { $captured.Add($line) }
 
 if ($exitCode -eq 0 -and $TestCase -eq 'TC-0015') {
@@ -89,9 +96,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0015') {
     Remove-Item -LiteralPath $descriptorOutput -Force `
         -ErrorAction SilentlyContinue
     $command = "'$script' >[3] '$descriptorOutput'"
-    $descriptorRun = @(& $resolvedWsh -c $command 2>&1 |
-        ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
+    $descriptorResult = Invoke-CapturedProcess `
+        -FilePath $resolvedWsh `
+        -ArgumentList @('-c', $command)
+    $descriptorRun = @($descriptorResult.Output)
+    $exitCode = $descriptorResult.ExitCode
     foreach ($line in $descriptorRun) {
         $captured.Add("descriptor: $line")
     }
@@ -107,9 +116,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0015') {
     if ($exitCode -eq 0) {
         $hereCommand = "x=world; '$resolvedProbe' copy <<EOF`n" +
             "hello `$x^`nEOF`n"
-        $here = @(& $resolvedWsh -c $hereCommand 2>&1 |
-            ForEach-Object { $_.ToString() })
-        $exitCode = $LASTEXITCODE
+        $hereResult = Invoke-CapturedProcess `
+            -FilePath $resolvedWsh `
+            -ArgumentList @('-c', $hereCommand)
+        $here = @($hereResult.Output)
+        $exitCode = $hereResult.ExitCode
         foreach ($line in $here) { $captured.Add("here: $line") }
         if ($exitCode -eq 0 -and ($here -join "`n") -ne 'hello world') {
             $captured.Add('unquoted here-document expansion mismatch')
@@ -119,9 +130,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0015') {
     if ($exitCode -eq 0) {
         $quotedCommand = "x=world; '$resolvedProbe' copy <<'EOF'`n" +
             "hello `$x`nEOF`n"
-        $quoted = @(& $resolvedWsh -c $quotedCommand 2>&1 |
-            ForEach-Object { $_.ToString() })
-        $exitCode = $LASTEXITCODE
+        $quotedResult = Invoke-CapturedProcess `
+            -FilePath $resolvedWsh `
+            -ArgumentList @('-c', $quotedCommand)
+        $quoted = @($quotedResult.Output)
+        $exitCode = $quotedResult.ExitCode
         foreach ($line in $quoted) { $captured.Add("quoted-here: $line") }
         if ($exitCode -eq 0 -and ($quoted -join "`n") -ne 'hello $x') {
             $captured.Add('quoted here-document literal mismatch')
@@ -132,9 +145,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0015') {
 
 if ($exitCode -eq 0 -and $TestCase -eq 'TC-0016') {
     $command = "echo 'pipeline ☃' | '$resolvedProbe' copy"
-    $pipeline = @(& $resolvedWsh -c $command 2>&1 |
-        ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
+    $pipelineResult = Invoke-CapturedProcess `
+        -FilePath $resolvedWsh `
+        -ArgumentList @('-c', $command)
+    $pipeline = @($pipelineResult.Output)
+    $exitCode = $pipelineResult.ExitCode
     foreach ($line in $pipeline) { $captured.Add("pipeline: $line") }
     if ($exitCode -eq 0 -and ($pipeline -join "`n") -ne 'pipeline ☃') {
         $captured.Add('shell-stage pipeline output mismatch')
@@ -147,9 +162,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0043') {
         'tests\fixtures\m5-nested-list.wsh'
     $command = "m5_nested_list=(one 'two words'); " +
         "export m5_nested_list; '$script'"
-    $nested = @(& $resolvedWsh -c $command 2>&1 |
-        ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
+    $nestedResult = Invoke-CapturedProcess `
+        -FilePath $resolvedWsh `
+        -ArgumentList @('-c', $command)
+    $nested = @($nestedResult.Output)
+    $exitCode = $nestedResult.ExitCode
     foreach ($line in $nested) { $captured.Add("nested: $line") }
     if ($exitCode -eq 0 -and ($nested -join "`n") -ne 'one two words') {
         $captured.Add('nested envelope output mismatch')
@@ -159,9 +176,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0043') {
 
 if ($exitCode -eq 0 -and $TestCase -eq 'TC-0051') {
     $command = "'$resolvedProbe' copy < <{'$resolvedProbe' emit pipe-data}"
-    $substitution = @(& $resolvedWsh -c $command 2>&1 |
-        ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
+    $substitutionResult = Invoke-CapturedProcess `
+        -FilePath $resolvedWsh `
+        -ArgumentList @('-c', $command)
+    $substitution = @($substitutionResult.Output)
+    $exitCode = $substitutionResult.ExitCode
     foreach ($line in $substitution) {
         $captured.Add("process-substitution: $line")
     }
@@ -175,9 +194,11 @@ if ($exitCode -eq 0 -and $TestCase -eq 'TC-0051') {
 if ($exitCode -eq 0 -and $TestCase -eq 'TC-0052') {
     $command = "'$resolvedProbe' emit outer " + [char]96 +
         "{'$resolvedProbe' invalid}"
-    $captureFailure = @(& $resolvedWsh -c $command 2>&1 |
-        ForEach-Object { $_.ToString() })
-    $captureExit = $LASTEXITCODE
+    $captureResult = Invoke-CapturedProcess `
+        -FilePath $resolvedWsh `
+        -ArgumentList @('-c', $command)
+    $captureFailure = @($captureResult.Output)
+    $captureExit = $captureResult.ExitCode
     foreach ($line in $captureFailure) {
         $captured.Add("invalid-capture: $line")
     }

@@ -1797,6 +1797,12 @@ static wsh_result wsh_windows_build_envelope(
         if (result != WSH_OK || !exported) {
             continue;
         }
+        /* Scalars are already preserved exactly by the ordinary environment
+         * entry.  The private envelope is needed only for list shapes that a
+         * Windows scalar cannot represent without loss. */
+        if (wsh_value_count(value) == 1U) {
+            continue;
+        }
         result = wsh_envelope_append_field(builder, name);
         if (result == WSH_OK) {
             result = wsh_envelope_append_size(
