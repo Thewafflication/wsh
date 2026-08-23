@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0075}
+\def\TCTitle{Hostile Windows runtime boundary}
+\def\TCPurpose{Verify M5 DFS controls allocated by WSH-REQ-0075.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0075}
+\def\TCDesignRef{WSH-DFS-0001 and ADR-0008}
+\def\TCFeatureRef{hostile paths, environment, handles, peers, and child output}
+\def\TCTestTechnique{Threat-based misuse and recovery testing.}
+\def\TCPreconditions{Sentinel handles, traps, and hostile probes are available.}
+\def\TCEnvironment{Modern handle-list and forced legacy fallback modes.}
+\def\TCAssumptions{Legacy host inheritance precondition is separately reviewed.}
+\def\TCInputData{Planting, collision, sentinel, peer, overflow, and partial failure cases.}
+\def\TCInitialState{All markers and registries are empty.}
+\def\TCProcedure{Attempt every M5 threat and inspect control and recovery state.}
+\def\TCExpectedResult{Controls fail closed and no WSH resource or trap escapes.}
+\def\TCPostConditions{No live child, open pipe, inherited sentinel, or marker remains.}
+\TCTemplate
+\end{document}

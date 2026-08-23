@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(wsh VERSION 1.2.0 LANGUAGES C)
+project(wsh VERSION 1.3.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -81,6 +81,16 @@ add_library(wsh_core STATIC
 target_include_directories(wsh_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(wsh_core PUBLIC WCRT::WCRT)
 
+add_library(wsh_windows_runtime STATIC
+    src/platform/windows/windows_runtime.c
+)
+target_include_directories(
+    wsh_windows_runtime
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_link_libraries(wsh_windows_runtime PUBLIC wsh_core)
+
 add_library(wsh_static STATIC src/wshlib.c)
 add_library(wsh_shared SHARED src/wshlib.c)
 
@@ -134,7 +144,7 @@ target_include_directories(wsh
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-target_link_libraries(wsh PRIVATE wsh_static)
+target_link_libraries(wsh PRIVATE wsh_static wsh_windows_runtime)
 wsh_configure_executable(wsh)
 
 install(TARGETS wsh wsh_static wsh_shared

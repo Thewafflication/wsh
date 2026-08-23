@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0074}
+\def\TCTitle{Windows runtime resource limits}
+\def\TCPurpose{Verify M5 resource ceilings for WSH-REQ-0074.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0074}
+\def\TCDesignRef{M5 plan: Risks and Controls}
+\def\TCFeatureRef{command-line, environment, descriptor, child, pipe, capture limits}
+\def\TCTestTechnique{Boundary-value and stress testing.}
+\def\TCPreconditions{Runtime limits are configurable below OS limits.}
+\def\TCEnvironment{Native Windows runtime.}
+\def\TCAssumptions{A rejected preparation performs no launch.}
+\def\TCInputData{At-limit and over-limit values for every M5 resource.}
+\def\TCInitialState{Runtime counters are zero.}
+\def\TCProcedure{Exercise each lower, exact, and upper boundary.}
+\def\TCExpectedResult{Exact limits work; excess fails before uncontrolled use.}
+\def\TCPostConditions{Counters and resources return to zero.}
+\TCTemplate
+\end{document}

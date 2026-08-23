@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0043}
+\def\TCTitle{Nested WSH isolation and environment envelope}
+\def\TCPurpose{Verify the M5 child portion of WSH-REQ-0043.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0043}
+\def\TCDesignRef{M5 design: Environment and Directory}
+\def\TCFeatureRef{explicit .wsh child and private list envelope}
+\def\TCTestTechnique{State-transition and tamper testing.}
+\def\TCPreconditions{The tested wsh executable can launch itself.}
+\def\TCEnvironment{One parent and nested child runtime.}
+\def\TCAssumptions{The envelope is bounded untrusted input.}
+\def\TCInputData{Scalar/list exports, nonce mismatch, and explicit script.}
+\def\TCInitialState{Known parent private and exported variables.}
+\def\TCProcedure{Launch nested WSH and tamper with copied envelope fields.}
+\def\TCExpectedResult{Valid lists survive; invalid envelope cannot override.}
+\def\TCPostConditions{Parent state is unchanged and child is collected.}
+\TCTemplate
+\end{document}

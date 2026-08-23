@@ -197,6 +197,7 @@ the release receives explicit approval.
 | M2 | Complete on 2026-08-11; Windows CI added | `docs/milestones/m02-closeout.md`, `docs/milestones/m02-ci-log.md` |
 | M3 | Complete on 2026-08-12 | `docs/milestones/m03-closeout.md`, `docs/milestones/m03-work-log.md` |
 | M4 | Complete on 2026-08-22 | `docs/milestones/m04-closeout.md`, `docs/milestones/m04-work-log.md` |
+| M5 | Complete on 2026-08-22 | `docs/milestones/m05-closeout.md`, `docs/milestones/m05-work-log.md` |
 
 **M3 recalibration (2026-08-12):** The 132k reconstructed M3 estimate is 12
 percent below its 150k control budget. Parser failure atomicity, source
@@ -207,6 +208,12 @@ unchanged. Recalibration will run again after M5 as planned.
 **M4 checkpoint (2026-08-22):** The reconstructed M4 estimate remains within
 its accepted 160k control budget. The roadmap stays at 1,510,000 tokens and
 the scheduled recalibration remains after M5.
+
+**M5 recalibration (2026-08-22):** The reconstructed M5 estimate is 176k,
+2.2 percent below its accepted 180k budget. Native-runtime implementation and
+negative verification matched the phase forecast. No downstream estimate has
+crossed its replanning threshold, so the roadmap remains 1,510,000 tokens.
+The next scheduled recalibration remains after M8.
 
 ## 6. Cross-Milestone Controls
 

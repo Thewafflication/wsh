@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0042}
+\def\TCTitle{No implicit script or association launch}
+\def\TCPurpose{Verify every denied route in WSH-REQ-0042.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0042}
+\def\TCDesignRef{M5 design: Resolution and Serialization}
+\def\TCFeatureRef{negative cmd, bat, PowerShell, PATHEXT, association routes}
+\def\TCTestTechnique{Misuse-case and decision-table testing.}
+\def\TCPreconditions{Trap files and environment entries are isolated.}
+\def\TCEnvironment{A temporary directory with hostile extension mappings.}
+\def\TCAssumptions{Launching a trap leaves an observable marker.}
+\def\TCInputData{bat, cmd, ps1, document, URL, and PATHEXT candidates.}
+\def\TCInitialState{No marker exists.}
+\def\TCProcedure{Attempt each bare and associated launch route.}
+\def\TCExpectedResult{Every route fails resolution and no marker appears.}
+\def\TCPostConditions{Trap files and environment changes are removed.}
+\TCTemplate
+\end{document}

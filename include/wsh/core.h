@@ -132,6 +132,89 @@ typedef struct wsh_status_list wsh_status_list;
 /** Opaque fault-atomic status-list builder. */
 typedef struct wsh_status_builder wsh_status_builder;
 
+/** Opaque isolated portable-core context. */
+typedef struct wsh_context wsh_context;
+
+/** One ordered logical-descriptor action for a launch or write. */
+typedef enum wsh_runtime_redirection_kind {
+    /** Open an existing file for byte input. */
+    WSH_RUNTIME_REDIRECT_INPUT = 1,
+    /** Create or truncate a file for byte output. */
+    WSH_RUNTIME_REDIRECT_OUTPUT = 2,
+    /** Open or create a file and append byte output. */
+    WSH_RUNTIME_REDIRECT_APPEND = 3,
+    /** Supply exact here-document text through a pipe. */
+    WSH_RUNTIME_REDIRECT_HERE = 4,
+    /** Duplicate one current logical descriptor mapping. */
+    WSH_RUNTIME_REDIRECT_DUPLICATE = 5,
+    /** Close one current logical descriptor mapping. */
+    WSH_RUNTIME_REDIRECT_CLOSE = 6
+} wsh_runtime_redirection_kind;
+
+/** Borrowed descriptor action prepared by the evaluator. */
+typedef struct wsh_runtime_redirection {
+    /** Action applied at this point in left-to-right order. */
+    wsh_runtime_redirection_kind kind;
+    /** Destination logical descriptor in the range 0 through 9. */
+    unsigned target_descriptor;
+    /** Source descriptor for duplicate, otherwise zero. */
+    unsigned source_descriptor;
+    /** Expanded path or normalized here text, otherwise empty. */
+    wsh_string_view operand;
+} wsh_runtime_redirection;
+
+/** Borrowed fully expanded external command. */
+typedef struct wsh_runtime_command {
+    /** Unresolved executable subject. */
+    wsh_string_view subject;
+    /** Structured arguments excluding the executable, or null. */
+    const wsh_value *arguments;
+    /** Ordered descriptor actions, or null. */
+    const wsh_runtime_redirection *redirections;
+    /** Number of descriptor actions. */
+    size_t redirection_count;
+    /** Complete caller-supplied command line for raw launch. */
+    wsh_string_view raw_command_line;
+    /** Nonzero only for explicit policy-controlled raw launch. */
+    int raw;
+    /** Nonzero asks the runtime to execute the shell `echo` stage. */
+    int shell_echo;
+} wsh_runtime_command;
+
+/** Borrowed descriptor connection between adjacent pipeline stages. */
+typedef struct wsh_runtime_pipeline_edge {
+    /** Logical descriptor supplied by the left stage. */
+    unsigned output_descriptor;
+    /** Logical descriptor consumed by the right stage. */
+    unsigned input_descriptor;
+} wsh_runtime_pipeline_edge;
+
+/** Launch-plan mode flags. */
+typedef enum wsh_runtime_launch_flag {
+    /** Return after registering launched background work. */
+    WSH_RUNTIME_LAUNCH_BACKGROUND = 1,
+    /** Capture the final stage's descriptor 1 into runtime output. */
+    WSH_RUNTIME_LAUNCH_CAPTURE = 2,
+    /** Create a cancellable Windows process group. */
+    WSH_RUNTIME_LAUNCH_PROCESS_GROUP = 4
+} wsh_runtime_launch_flag;
+
+/** Borrowed validated composition plan for one runtime request. */
+typedef struct wsh_runtime_launch_plan {
+    /** Commands in source order. */
+    const wsh_runtime_command *commands;
+    /** Number of commands, at least one for launch. */
+    size_t command_count;
+    /** Connections between adjacent commands. */
+    const wsh_runtime_pipeline_edge *edges;
+    /** Number of edges, command_count minus one for a pipeline. */
+    size_t edge_count;
+    /** Bitwise combination of wsh_runtime_launch_flag values. */
+    unsigned flags;
+    /** Finite wait deadline in milliseconds, or zero for no deadline. */
+    uint32_t timeout_milliseconds;
+} wsh_runtime_launch_plan;
+
 /** Operation categories understood by an abstract runtime. */
 typedef enum wsh_runtime_operation {
     /** Read source bytes identified by the subject. */
@@ -145,7 +228,17 @@ typedef enum wsh_runtime_operation {
     /** Query or update environment-boundary state. */
     WSH_RUNTIME_ENVIRONMENT = 5,
     /** Return candidate filesystem paths for one unquoted pattern. */
-    WSH_RUNTIME_MATCH_PATHS = 6
+    WSH_RUNTIME_MATCH_PATHS = 6,
+    /** Launch an ordered pipeline described by a typed plan. */
+    WSH_RUNTIME_PIPELINE = 7,
+    /** Wait for selected or all registered background work. */
+    WSH_RUNTIME_WAIT = 8,
+    /** Query or change the runtime's logical working directory. */
+    WSH_RUNTIME_WORKING_DIRECTORY = 9,
+    /** Create a named-pipe provider and return its path. */
+    WSH_RUNTIME_PROCESS_SUBSTITUTION = 10,
+    /** Request bounded cancellation of foreground or selected work. */
+    WSH_RUNTIME_CANCEL = 11
 } wsh_runtime_operation;
 
 /** One immutable request crossing the runtime boundary. */
@@ -156,6 +249,10 @@ typedef struct wsh_runtime_request {
     wsh_string_view subject;
     /** Borrowed structured arguments, which may be null. */
     const wsh_value *arguments;
+    /** Borrowed isolated context supplying exported launch state. */
+    const wsh_context *context;
+    /** Borrowed typed launch plan for orchestration operations. */
+    const wsh_runtime_launch_plan *launch_plan;
 } wsh_runtime_request;
 
 /** Perform one abstract operation using caller-owned output builders. */
@@ -226,9 +323,6 @@ typedef struct wsh_diagnostic_view {
     /** Source range when has_span is nonzero. */
     wsh_source_span span;
 } wsh_diagnostic_view;
-
-/** Opaque isolated portable-core context. */
-typedef struct wsh_context wsh_context;
 
 /** Options used to create one context. */
 typedef struct wsh_context_options {

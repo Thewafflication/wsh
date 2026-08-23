@@ -7,6 +7,7 @@
 #include "frontend.h"
 #include "wsh/core.h"
 #include "wsh/evaluator.h"
+#include "wsh/windows_runtime.h"
 #include "wsh/wsh.h"
 
 #include <stdio.h>
@@ -62,12 +63,26 @@ typedef struct wsh_stream_writer {
     int is_console;
 } wsh_stream_writer;
 
+/** Borrowed command text exposed as one batch input line. */
+typedef struct wsh_memory_reader {
+    /** Borrowed exact command bytes. */
+    const unsigned char *bytes;
+    /** Number of command bytes. */
+    size_t length;
+    /** Nonzero after the command has been returned once. */
+    int consumed;
+} wsh_memory_reader;
+
 /** Runtime adapter and diagnostic cursor for one front-end evaluator. */
 typedef struct wsh_main_evaluation {
     /** Evaluator retained across interactive commands. */
     wsh_evaluator *evaluator;
     /** Context that owns variables and diagnostics. */
     wsh_context *context;
+    /** Owned concrete Windows effect boundary. */
+    wsh_windows_runtime *windows_runtime;
+    /** Concrete callback table used behind the console adapter. */
+    wsh_runtime concrete_runtime;
     /** Borrowed normal-output writer. */
     wsh_stream_writer *output;
     /** Borrowed diagnostic-output writer. */
@@ -82,6 +97,8 @@ static void usage(FILE *stream, const char *program_name)
     fprintf(
         stream,
         "Usage: %s [--interactive|-i|--non-interactive|-I]\n"
+        "       %s -c command\n"
+        "       %s script.wsh [argument ...]\n"
         "       %s [--help|-h|--version|-V|--print-abi]\n"
         "\n"
         "With no source operand, read standard input. A console input uses\n"
@@ -89,7 +106,29 @@ static void usage(FILE *stream, const char *program_name)
         "  -i, --interactive      require a console on standard input\n"
         "  -I, --non-interactive  disable prompts and interactive recovery\n",
         program_name,
+        program_name,
+        program_name,
         program_name);
+}
+
+/** Return one borrowed in-memory command and then EOF. */
+static wsh_frontend_read_result read_memory_line(
+    void *user_data,
+    const unsigned char **out_bytes,
+    size_t *out_length)
+{
+    wsh_memory_reader *reader;
+
+    reader = (wsh_memory_reader *)user_data;
+    *out_bytes = NULL;
+    *out_length = 0U;
+    if (reader == NULL || reader->consumed) {
+        return WSH_FRONTEND_READ_EOF;
+    }
+    reader->consumed = 1;
+    *out_bytes = reader->bytes;
+    *out_length = reader->length;
+    return WSH_FRONTEND_READ_LINE;
 }
 
 /** Return whether a standard handle is a usable Windows console. */
@@ -361,25 +400,64 @@ static wsh_result invoke_frontend_runtime(
 {
     wsh_main_evaluation *evaluation;
     wsh_string_view text;
+    const wsh_runtime_command *command;
+    int redirected;
 
-    (void)output;
     evaluation = (wsh_main_evaluation *)user_data;
     if (evaluation == NULL || request == NULL || status == NULL) {
         return WSH_ERR_INVALID;
     }
-    if (request->operation != WSH_RUNTIME_WRITE ||
-        !wsh_string_view_equal(
-            request->subject,
-            wsh_string_view_from_cstr("stdout")) ||
-        request->arguments == NULL ||
+    if (request->operation != WSH_RUNTIME_WRITE) {
+        return evaluation->concrete_runtime.invoke(
+            evaluation->concrete_runtime.user_data,
+            request,
+            output,
+            status);
+    }
+    if (request->arguments == NULL ||
         wsh_value_count(request->arguments) != 1U ||
         wsh_value_at(request->arguments, 0U, &text) != WSH_OK) {
         return WSH_ERR_INVALID;
     }
-    if (write_stream(evaluation->output, text.data, text.length) != 0) {
+    command = request->launch_plan != NULL &&
+        request->launch_plan->command_count == 1U ?
+        &request->launch_plan->commands[0] : NULL;
+    redirected = command != NULL && command->redirection_count != 0U;
+    if (redirected) {
+        return evaluation->concrete_runtime.invoke(
+            evaluation->concrete_runtime.user_data,
+            request,
+            output,
+            status);
+    }
+    if (request->launch_plan != NULL &&
+        (request->launch_plan->flags &
+         WSH_RUNTIME_LAUNCH_CAPTURE) != 0U) {
+        return wsh_status_builder_append(status, 0U);
+    }
+    if (write_stream(
+            wsh_string_view_equal(
+                request->subject,
+                wsh_string_view_from_cstr("stderr")) ?
+                evaluation->error : evaluation->output,
+            text.data,
+            text.length) != 0) {
         return WSH_ERR_INTERNAL;
     }
     return wsh_status_builder_append(status, 0U);
+}
+
+/** Delegate Windows ordinal environment-name comparison. */
+static int compare_frontend_names(
+    void *user_data,
+    wsh_string_view left,
+    wsh_string_view right)
+{
+    wsh_main_evaluation *evaluation;
+
+    evaluation = (wsh_main_evaluation *)user_data;
+    return evaluation->concrete_runtime.names_equal(
+        evaluation->concrete_runtime.user_data, left, right);
 }
 
 /** Display newly retained evaluator diagnostics. */
@@ -451,13 +529,17 @@ static int evaluate_frontend_tree(
 }
 
 /** Run standard input in the selected batch or interactive mode. */
-static int run_standard_input(int interactive)
+static int run_input_session(
+    int interactive,
+    const char *source_name,
+    wsh_frontend_read_fn read_line,
+    void *input_data,
+    HANDLE input_handle,
+    int argument_count,
+    char **arguments)
 {
-    HANDLE input_handle;
     HANDLE output_handle;
     HANDLE error_handle;
-    wsh_file_reader file_reader;
-    wsh_console_reader console_reader;
     wsh_stream_writer output_writer;
     wsh_stream_writer error_writer;
     wsh_frontend_options options;
@@ -466,18 +548,23 @@ static int run_standard_input(int interactive)
     wsh_context_options context_options;
     wsh_evaluator_options evaluator_options;
     wsh_runtime runtime;
+    wsh_value_builder *argument_builder;
+    wsh_value *argument_value;
+    wsh_allocator allocator;
+    wsh_limits limits;
+    wsh_result core_result;
+    int argument_index;
     DWORD original_input_mode;
     DWORD input_mode;
     int restore_input_mode;
     int result;
 
-    input_handle = GetStdHandle(STD_INPUT_HANDLE);
     output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
     error_handle = GetStdHandle(STD_ERROR_HANDLE);
-    memset(&file_reader, 0, sizeof(file_reader));
-    memset(&console_reader, 0, sizeof(console_reader));
     memset(&io, 0, sizeof(io));
     memset(&evaluation, 0, sizeof(evaluation));
+    argument_builder = NULL;
+    argument_value = NULL;
     restore_input_mode = 0;
 
     if (interactive) {
@@ -494,9 +581,6 @@ static int run_standard_input(int interactive)
         }
     }
 
-    file_reader.handle = input_handle;
-    console_reader.handle = input_handle;
-    console_reader.allocator = wsh_allocator_default();
     output_writer.stream = stdout;
     output_writer.handle = output_handle;
     output_writer.is_console = handle_is_console(output_handle);
@@ -504,18 +588,25 @@ static int run_standard_input(int interactive)
     error_writer.handle = error_handle;
     error_writer.is_console = handle_is_console(error_handle);
 
-    io.input_data = interactive ? (void *)&console_reader :
-        (void *)&file_reader;
-    io.read_line = interactive ? read_console_line : read_file_line;
+    io.input_data = input_data;
+    io.read_line = read_line;
     io.output_data = &output_writer;
     io.write_output = write_stream;
     io.error_data = &error_writer;
     io.write_error = write_stream;
     evaluation.output = &output_writer;
     evaluation.error = &error_writer;
+    if (wsh_windows_runtime_create(
+            NULL, &evaluation.windows_runtime) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
+    evaluation.concrete_runtime = wsh_windows_runtime_interface(
+        evaluation.windows_runtime);
     memset(&runtime, 0, sizeof(runtime));
     runtime.user_data = &evaluation;
     runtime.invoke = invoke_frontend_runtime;
+    runtime.names_equal = compare_frontend_names;
     wsh_context_options_init(&context_options);
     context_options.runtime = runtime;
     if (wsh_context_create(
@@ -523,9 +614,40 @@ static int run_standard_input(int interactive)
         result = 4;
         goto cleanup;
     }
+    if (wsh_windows_runtime_import_environment(
+            evaluation.windows_runtime,
+            evaluation.context) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
+    allocator = wsh_allocator_default();
+    limits = wsh_limits_default();
+    core_result = wsh_value_builder_create(
+        &allocator, &limits, &argument_builder);
+    for (argument_index = 0;
+         core_result == WSH_OK && argument_index < argument_count;
+         ++argument_index) {
+        core_result = wsh_value_builder_append(
+            argument_builder,
+            wsh_string_view_from_cstr(arguments[argument_index]));
+    }
+    if (core_result == WSH_OK) {
+        core_result = wsh_value_builder_finish(
+            argument_builder, &argument_value);
+    }
+    if (core_result == WSH_OK) {
+        core_result = wsh_context_set_variable(
+            evaluation.context,
+            wsh_string_view_from_cstr("*"),
+            argument_value);
+    }
+    if (core_result != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
     wsh_evaluator_options_init(&evaluator_options);
     evaluator_options.source_name = wsh_string_view_from_cstr(
-        interactive ? "wsh" : "stdin");
+        source_name);
     if (wsh_evaluator_create(
             evaluation.context,
             &evaluator_options,
@@ -542,9 +664,9 @@ static int run_standard_input(int interactive)
 cleanup:
     wsh_evaluator_destroy(evaluation.evaluator);
     wsh_context_destroy(evaluation.context);
-    free(file_reader.bytes);
-    free(console_reader.units);
-    wsh_allocator_release(&console_reader.allocator, console_reader.bytes);
+    wsh_windows_runtime_destroy(evaluation.windows_runtime);
+    wsh_value_builder_destroy(argument_builder);
+    wsh_value_destroy(argument_value);
     if (restore_input_mode &&
         !SetConsoleMode(input_handle, original_input_mode) && result == 0) {
         result = WSH_EXIT_IO;
@@ -552,8 +674,166 @@ cleanup:
     return result;
 }
 
+/** Run standard input in the selected batch or interactive mode. */
+static int run_standard_input(int interactive)
+{
+    HANDLE input_handle;
+    wsh_file_reader file_reader;
+    wsh_console_reader console_reader;
+    int result;
+
+    input_handle = GetStdHandle(STD_INPUT_HANDLE);
+    memset(&file_reader, 0, sizeof(file_reader));
+    memset(&console_reader, 0, sizeof(console_reader));
+    file_reader.handle = input_handle;
+    console_reader.handle = input_handle;
+    console_reader.allocator = wsh_allocator_default();
+    result = run_input_session(
+        interactive,
+        interactive ? "wsh" : "stdin",
+        interactive ? read_console_line : read_file_line,
+        interactive ? (void *)&console_reader : (void *)&file_reader,
+        input_handle,
+        0,
+        NULL);
+    free(file_reader.bytes);
+    free(console_reader.units);
+    wsh_allocator_release(&console_reader.allocator, console_reader.bytes);
+    return result;
+}
+
+/** Run a literal command as one non-interactive input. */
+static int run_command(const char *command)
+{
+    wsh_memory_reader reader;
+
+    memset(&reader, 0, sizeof(reader));
+    reader.bytes = (const unsigned char *)command;
+    reader.length = strlen(command);
+    return run_input_session(
+        0,
+        "-c",
+        read_memory_line,
+        &reader,
+        GetStdHandle(STD_INPUT_HANDLE),
+        0,
+        NULL);
+}
+
+/** Open a strict UTF-8 path with the native wide Windows boundary. */
+static HANDLE open_script(const char *path)
+{
+    wsh_allocator allocator;
+    wsh_string_view view;
+    uint16_t *wide;
+    size_t length;
+    HANDLE handle;
+
+    allocator = wsh_allocator_default();
+    view = wsh_string_view_from_cstr(path);
+    wide = NULL;
+    if (wsh_utf8_to_utf16(
+            &allocator, NULL, view, &wide, &length) != WSH_OK) {
+        return INVALID_HANDLE_VALUE;
+    }
+    handle = CreateFileW(
+        (LPCWSTR)wide,
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    wsh_allocator_release(&allocator, wide);
+    return handle;
+}
+
+/** Run one UTF-8-named script with remaining arguments in `$*`. */
+static int run_script(
+    const char *path,
+    int argument_count,
+    char **arguments)
+{
+    HANDLE handle;
+    wsh_file_reader reader;
+    int result;
+
+    handle = open_script(path);
+    if (handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "wsh: cannot open script: %s\n", path);
+        return WSH_EXIT_IO;
+    }
+    memset(&reader, 0, sizeof(reader));
+    reader.handle = handle;
+    result = run_input_session(
+        0,
+        path,
+        read_file_line,
+        &reader,
+        handle,
+        argument_count,
+        arguments);
+    free(reader.bytes);
+    CloseHandle(handle);
+    return result;
+}
+
+/** Write exact internal-stage bytes to the inherited standard output. */
+static int write_internal_bytes(const char *bytes, size_t length)
+{
+    HANDLE output;
+    size_t offset;
+    DWORD chunk;
+    DWORD written;
+
+    output = GetStdHandle(STD_OUTPUT_HANDLE);
+    offset = 0U;
+    while (offset < length) {
+        chunk = length - offset > 32768U ?
+            32768U : (DWORD)(length - offset);
+        written = 0U;
+        if (!WriteFile(
+                output,
+                bytes + offset,
+                chunk,
+                &written,
+                NULL) || written != chunk) {
+            return 0;
+        }
+        offset += written;
+    }
+    return 1;
+}
+
+/** Execute the private process form used for an `echo` pipeline stage. */
+static int run_internal_echo(int argc, char **argv)
+{
+    int first;
+    int index;
+    int newline;
+
+    first = 2;
+    newline = 1;
+    if (first < argc && strcmp(argv[first], "-n") == 0) {
+        first += 1;
+        newline = 0;
+    }
+    for (index = first; index < argc; ++index) {
+        if (index != first && !write_internal_bytes(" ", 1U)) {
+            return WSH_EXIT_IO;
+        }
+        if (!write_internal_bytes(argv[index], strlen(argv[index]))) {
+            return WSH_EXIT_IO;
+        }
+    }
+    if (newline && !write_internal_bytes("\r\n", 2U)) {
+        return WSH_EXIT_IO;
+    }
+    return 0;
+}
+
 /** Process information options and select the standard-input mode. */
-int main(int argc, char **argv)
+static int wsh_main(int argc, char **argv)
 {
     int require_interactive;
     int disable_interactive;
@@ -562,10 +842,18 @@ int main(int argc, char **argv)
     size_t short_index;
     HANDLE input_handle;
     int input_is_console;
+    const char *command;
+    int script_index;
+
+    if (argc >= 2 && strcmp(argv[1], "--runtime-echo") == 0) {
+        return run_internal_echo(argc, argv);
+    }
 
     require_interactive = 0;
     disable_interactive = 0;
     end_options = 0;
+    command = NULL;
+    script_index = 0;
     for (i = 1; i < argc; ++i) {
         if (!end_options && strcmp(argv[i], "--") == 0) {
             end_options = 1;
@@ -577,6 +865,13 @@ int main(int argc, char **argv)
             (strcmp(argv[i], "--non-interactive") == 0 ||
              strcmp(argv[i], "-I") == 0)) {
             disable_interactive = 1;
+        } else if (!end_options && strcmp(argv[i], "-c") == 0) {
+            if (i + 1 >= argc || i + 2 != argc) {
+                usage(stderr, argv[0]);
+                return WSH_EXIT_USAGE;
+            }
+            command = argv[i + 1];
+            break;
         } else if (!end_options &&
             (strcmp(argv[i], "--help") == 0 ||
              strcmp(argv[i], "-h") == 0)) {
@@ -616,14 +911,27 @@ int main(int argc, char **argv)
                 }
             }
         } else {
-            usage(stderr, argv[0]);
-            return WSH_EXIT_USAGE;
+            script_index = i;
+            break;
         }
     }
 
     if (require_interactive && disable_interactive) {
         fprintf(stderr, "wsh: interactive modes are mutually exclusive\n");
         return WSH_EXIT_USAGE;
+    }
+    if (command != NULL || script_index != 0) {
+        if (require_interactive) {
+            fprintf(stderr, "wsh: -i cannot be used with command input\n");
+            return WSH_EXIT_USAGE;
+        }
+        if (command != NULL) {
+            return run_command(command);
+        }
+        return run_script(
+            argv[script_index],
+            argc - script_index - 1,
+            argv + script_index + 1);
     }
     input_handle = GetStdHandle(STD_INPUT_HANDLE);
     input_is_console = handle_is_console(input_handle);
@@ -632,4 +940,209 @@ int main(int argc, char **argv)
         return WSH_EXIT_IO;
     }
     return run_standard_input(input_is_console && !disable_interactive);
+}
+
+/** Grow one temporary UTF-16 command-line argument. */
+static int append_argument_unit(
+    uint16_t **units,
+    size_t *length,
+    size_t *capacity,
+    uint16_t unit)
+{
+    size_t next;
+    uint16_t *replacement;
+
+    if (*length == *capacity) {
+        next = *capacity == 0U ? 32U : *capacity * 2U;
+        if (next < *capacity ||
+            next > (size_t)-1 / sizeof(**units)) {
+            return 0;
+        }
+        replacement = (uint16_t *)realloc(
+            *units, next * sizeof(**units));
+        if (replacement == NULL) {
+            return 0;
+        }
+        *units = replacement;
+        *capacity = next;
+    }
+    (*units)[(*length)++] = unit;
+    return 1;
+}
+
+/** Parse GetCommandLineW with the Microsoft C-runtime quoting algorithm. */
+static int parse_wide_arguments(int *out_count, char ***out_arguments)
+{
+    const uint16_t *command_line;
+    size_t offset;
+    size_t slash_count;
+    int quoted;
+    uint16_t *wide_argument;
+    size_t wide_length;
+    size_t wide_capacity;
+    char *argument;
+    size_t argument_length;
+    char **arguments;
+    size_t count;
+    size_t capacity;
+    char **replacement;
+    wsh_allocator allocator;
+    wsh_result result;
+
+    *out_count = 0;
+    *out_arguments = NULL;
+    command_line = (const uint16_t *)GetCommandLineW();
+    offset = 0U;
+    arguments = NULL;
+    count = 0U;
+    capacity = 0U;
+    allocator = wsh_allocator_default();
+    while (command_line[offset] != 0U) {
+        while (command_line[offset] == L' ' ||
+               command_line[offset] == L'\t') {
+            offset += 1U;
+        }
+        if (command_line[offset] == 0U) {
+            break;
+        }
+        wide_argument = NULL;
+        wide_length = 0U;
+        wide_capacity = 0U;
+        quoted = 0;
+        while (command_line[offset] != 0U &&
+            (quoted || (command_line[offset] != L' ' &&
+                        command_line[offset] != L'\t'))) {
+            slash_count = 0U;
+            while (command_line[offset] == L'\\') {
+                slash_count += 1U;
+                offset += 1U;
+            }
+            if (command_line[offset] == L'\"') {
+                while (slash_count >= 2U) {
+                    if (!append_argument_unit(
+                            &wide_argument,
+                            &wide_length,
+                            &wide_capacity,
+                            L'\\')) {
+                        free(wide_argument);
+                        goto failure;
+                    }
+                    slash_count -= 2U;
+                }
+                if (slash_count == 1U) {
+                    if (!append_argument_unit(
+                            &wide_argument,
+                            &wide_length,
+                            &wide_capacity,
+                            L'\"')) {
+                        free(wide_argument);
+                        goto failure;
+                    }
+                    offset += 1U;
+                } else if (quoted && command_line[offset + 1U] == L'\"') {
+                    if (!append_argument_unit(
+                            &wide_argument,
+                            &wide_length,
+                            &wide_capacity,
+                            L'\"')) {
+                        free(wide_argument);
+                        goto failure;
+                    }
+                    offset += 2U;
+                } else {
+                    quoted = !quoted;
+                    offset += 1U;
+                }
+            } else {
+                while (slash_count != 0U) {
+                    if (!append_argument_unit(
+                            &wide_argument,
+                            &wide_length,
+                            &wide_capacity,
+                            L'\\')) {
+                        free(wide_argument);
+                        goto failure;
+                    }
+                    slash_count -= 1U;
+                }
+                if (command_line[offset] != 0U) {
+                    if (!append_argument_unit(
+                            &wide_argument,
+                            &wide_length,
+                            &wide_capacity,
+                            command_line[offset++])) {
+                        free(wide_argument);
+                        goto failure;
+                    }
+                }
+            }
+        }
+        argument = NULL;
+        result = wsh_utf16_to_utf8(
+            &allocator,
+            NULL,
+            wide_argument,
+            wide_length,
+            &argument,
+            &argument_length);
+        free(wide_argument);
+        if (result != WSH_OK) {
+            goto failure;
+        }
+        if (count == capacity) {
+            size_t next;
+
+            next = capacity == 0U ? 8U : capacity * 2U;
+            replacement = (char **)realloc(
+                arguments, next * sizeof(*arguments));
+            if (replacement == NULL) {
+                wsh_allocator_release(&allocator, argument);
+                goto failure;
+            }
+            arguments = replacement;
+            capacity = next;
+        }
+        arguments[count++] = argument;
+    }
+    *out_count = (int)count;
+    *out_arguments = arguments;
+    return 1;
+
+failure:
+    while (count != 0U) {
+        count -= 1U;
+        wsh_allocator_release(&allocator, arguments[count]);
+    }
+    free(arguments);
+    return 0;
+}
+
+/** Release strict UTF-8 arguments created from GetCommandLineW. */
+static void destroy_arguments(int count, char **arguments)
+{
+    wsh_allocator allocator;
+
+    allocator = wsh_allocator_default();
+    while (count > 0) {
+        count -= 1;
+        wsh_allocator_release(&allocator, arguments[count]);
+    }
+    free(arguments);
+}
+
+/** Convert the native command line before dispatching the CLI. */
+int main(int ignored_count, char **ignored_arguments)
+{
+    int count;
+    char **arguments;
+    int result;
+
+    (void)ignored_count;
+    (void)ignored_arguments;
+    if (!parse_wide_arguments(&count, &arguments) || count == 0) {
+        return WSH_EXIT_USAGE;
+    }
+    result = wsh_main(count, arguments);
+    destroy_arguments(count, arguments);
+    return result;
 }

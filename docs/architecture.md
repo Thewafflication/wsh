@@ -80,6 +80,13 @@ are resolved dynamically and represented as capabilities. Tests can supply a
 deterministic fake runtime without linking Win32 process behavior into parser
 tests.
 
+For process composition, the evaluator supplies a borrowed typed launch plan:
+one or more structured commands, ordered logical-descriptor actions, pipeline
+edges, execution mode, and the context whose exported variables form a
+snapshot. The Windows runtime validates and deep-prepares that plan before the
+first effect. It owns logical working-directory state and every created handle,
+pipe, child, job, wait, and cancellation transition.
+
 ## 3. Build Artifacts
 
 | Artifact | Purpose | Release status |
@@ -146,5 +153,6 @@ Windows platform implementation. The public ABI does not expose WCRT internals.
 
 The ADR set records the `rc` adaptation, parser/runtime separation,
 WPM/WCRT/CMake/CTest toolchain, single-binary compatibility, embedding boundary,
-and configuration/registry model. Proposed ADRs become authoritative only
-through the WSP baseline review.
+configuration/registry model, process/status model, and old/new Windows handle
+inheritance strategy. Proposed ADRs become authoritative only through the WSP
+baseline review.

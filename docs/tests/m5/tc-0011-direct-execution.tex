@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0011}
+\def\TCTitle{Direct Windows execution}
+\def\TCPurpose{Verify direct CreateProcessW launch for WSH-REQ-0011.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0011}
+\def\TCDesignRef{M5 design: Resolution and Serialization}
+\def\TCFeatureRef{direct structured process launch}
+\def\TCTestTechnique{Use-case and negative testing.}
+\def\TCPreconditions{The native runtime and child probe are built.}
+\def\TCEnvironment{A Windows test-owned temporary directory.}
+\def\TCAssumptions{CreateProcessW is available on every target.}
+\def\TCInputData{Structured command and interpreter trap files.}
+\def\TCInitialState{No child is registered.}
+\def\TCProcedure{Launch the probe and inspect its received arguments and image.}
+\def\TCExpectedResult{The resolved image runs directly with no interpreter.}
+\def\TCPostConditions{The child is collected and all handles are closed.}
+\TCTemplate
+\end{document}

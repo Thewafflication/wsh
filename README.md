@@ -11,9 +11,8 @@ variables, consoles, and handles.
 
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
-M1 repository skeleton, M2 portable core, M3 lexer/parser, and M4 language
-evaluator are implemented. Real Windows process composition remains allocated
-to M5.
+M1 repository skeleton, M2 portable core, M3 lexer/parser, M4 language
+evaluator, and M5 Windows execution runtime are implemented.
 
 ## Install
 
@@ -54,12 +53,19 @@ Use `--interactive` (`-i`) to require console input or `--non-interactive`
 (`-I`) to suppress interactive behavior. Redirected standard input is selected
 as batch input automatically and never receives prompts.
 
-The current front end evaluates each complete immutable parse tree. Variables,
-lists, expansion, functions, structured control flow, `source`, `eval`, status,
-pattern matching, and `echo` are active. External commands, filesystem glob
-enumeration, pipelines, redirections, background jobs, and process
-substitution still require the planned M5 Windows runtime; their semantic
-requests are mediated or rejected without implicit command-interpreter use.
+The front end evaluates each complete immutable parse tree. Variables, lists,
+expansion, functions, structured control flow, `source`, `eval`, status,
+pattern matching, `echo`, external commands, globbing, redirection, pipelines,
+background jobs, and process substitution are active. Child processes launch
+directly through `CreateProcessW`; WSH does not invoke a command interpreter,
+file association, App Paths entry, or `PATHEXT` search implicitly.
+
+Use `-c` for one command or pass a script and its arguments directly:
+
+```powershell
+wsh -c "echo 'hello from wsh'"
+wsh build.wsh debug x64
+```
 
 ## Project Goals
 

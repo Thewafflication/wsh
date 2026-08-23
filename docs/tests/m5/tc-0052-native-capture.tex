@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0052}
+\def\TCTitle{Bounded native command capture}
+\def\TCPurpose{Verify the M5 capture boundary of WSH-REQ-0052.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0052}
+\def\TCDesignRef{M5 design: Descriptors, Pipelines, and Capture}
+\def\TCFeatureRef{concurrent exact capture, UTF-8 validation, outer suppression}
+\def\TCTestTechnique{Boundary and state-transition testing.}
+\def\TCPreconditions{Byte producer and evaluator are integrated.}
+\def\TCEnvironment{Native capture pipe.}
+\def\TCAssumptions{M4 performs IFS splitting after successful capture.}
+\def\TCInputData{Large valid UTF-8, invalid UTF-8, failure, and limit overflow.}
+\def\TCInitialState{No capture pipe or pending launch exists.}
+\def\TCProcedure{Capture each producer and observe the containing command.}
+\def\TCExpectedResult{Valid bytes split; every failure suppresses outer launch.}
+\def\TCPostConditions{Capture storage and child handles are released.}
+\TCTemplate
+\end{document}

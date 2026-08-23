@@ -250,17 +250,16 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Use the completed M4 evaluator and abstract-runtime request contract as the
-   sole semantic foundation for M5 Windows process composition.
-2. Implement M5 resolution, environment, process, descriptor, pipeline, job,
-   and process-substitution adapters without moving Win32 behavior into the
-   portable evaluator.
+1. Use the completed M5 runtime as the effect boundary for M6 standard-library
+   process and filesystem commands.
+2. Implement the M6 filesystem, path, text, process, time, system, and test
+   namespaces without duplicating Windows launch or ownership policy.
 3. Retain the M0/M1 retrospective logs and M2 evidence. Close the historical
    M1 dependency, x86-oldest-host, PE/import, DWARF, and release-PDF evidence
    gaps before a later release claim depends on them.
-4. Preserve M4's no-effect preparation failures, structured argument lists,
-   status ordering, subshell isolation, scope restoration, and evaluator
-   limits at every M5 operating-system boundary.
+4. Migrate representative build/test orchestration to `.wsh` while preserving
+   the bootstrap PowerShell path and M5's structured arguments, containment,
+   status ordering, timeout, cancellation, and no-effect failure rules.
 
 ## References
 

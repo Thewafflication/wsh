@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0013}
+\def\TCTitle{Exact structured argument serializer}
+\def\TCPurpose{Verify WSH-REQ-0013 and WSH-REQ-0044.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0013, WSH-REQ-0044}
+\def\TCDesignRef{ADR-0007 and M5 serializer design}
+\def\TCFeatureRef{Microsoft C-runtime compatible command-line serialization}
+\def\TCTestTechnique{Generated Cartesian boundary testing.}
+\def\TCPreconditions{Serializer and WSH/WCRT argument probe are built.}
+\def\TCEnvironment{Native Windows process creation.}
+\def\TCAssumptions{The child uses the pinned WCRT parser.}
+\def\TCInputData{Empty, space, quote, backslash-run, trailing-slash, and Unicode words.}
+\def\TCInitialState{No retained serializer buffer.}
+\def\TCProcedure{Serialize and round-trip generated vectors through a real child.}
+\def\TCExpectedResult{Every element and boundary round-trips exactly.}
+\def\TCPostConditions{All buffers and child handles are released.}
+\TCTemplate
+\end{document}

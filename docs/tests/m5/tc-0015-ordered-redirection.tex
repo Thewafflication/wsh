@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0015}
+\def\TCTitle{Ordered redirection and here input}
+\def\TCPurpose{Verify all ordered actions required by WSH-REQ-0015.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0015}
+\def\TCDesignRef{M5 design: Descriptors, Pipelines, and Capture}
+\def\TCFeatureRef{open, append, duplicate, close, stderr, and here document}
+\def\TCTestTechnique{State-transition and decision-table testing.}
+\def\TCPreconditions{The stream probe is built.}
+\def\TCEnvironment{Test-owned files and inherited standard handles.}
+\def\TCAssumptions{File bytes are not text-translated.}
+\def\TCInputData{Redirection permutations and UTF-8 here data.}
+\def\TCInitialState{Known file contents and descriptor mapping.}
+\def\TCProcedure{Apply actions left to right and execute the stream probe.}
+\def\TCExpectedResult{Observed bytes and failures match each ordered mapping.}
+\def\TCPostConditions{Opened files and pipe ends are closed.}
+\TCTemplate
+\end{document}

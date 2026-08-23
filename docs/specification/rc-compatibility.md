@@ -112,4 +112,20 @@ evidence. M5 retains process resolution, environment serialization, real
 filesystem enumeration, redirection, pipelines, background jobs, and process
 substitution; M4 makes no execution-compatibility claim for those rows.
 
+## 6. M5 Windows Execution Verification Record
+
+M5 changes no accepted compatibility disposition. Structured commands resolve
+and launch directly on Windows; logical descriptors, anonymous and named byte
+pipes, ordered unsigned status lists, logical working directories, background
+identifiers, and nested WSH metadata implement the already accepted Windows
+adaptations. No implicit command interpreter, file association, App Paths, or
+`PATHEXT` route is used.
+
+`TC-0011`, `TC-0012`, `TC-0013`, `TC-0015`, `TC-0016`, `TC-0018`, `TC-0024`,
+`TC-0039`, `TC-0042`, `TC-0043`, `TC-0045`, `TC-0047`, `TC-0050`, `TC-0051`,
+`TC-0052`, `TC-0070`, `TC-0074`, and `TC-0075` provide native x86/x64 Debug
+and Release evidence for resolution, arguments, environment, descriptors,
+pipelines, jobs, capture, and process substitution. ARM64 is cross-built only;
+M5 makes no native ARM64 execution claim from the current host.
+
 [rc]: https://9fans.github.io/plan9port/man/man1/rc.html

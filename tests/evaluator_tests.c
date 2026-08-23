@@ -682,7 +682,7 @@ static int test_tc_0074(void)
     return 1;
 }
 
-/** Verify subshell isolation and pre-effect M5 rejection. */
+/** Verify subshell isolation and typed M5 runtime-plan forwarding. */
 static int test_tc_0075(void)
 {
     test_session session;
@@ -699,8 +699,8 @@ static int test_tc_0075(void)
     CHECK(wsh_fake_runtime_complete(session.fake) == WSH_OK);
     wsh_status_list_destroy(status);
     CHECK(evaluate_text(session.evaluator,
-        "probe >file", &status) == WSH_ERR_INVALID);
-    CHECK(wsh_fake_runtime_call_count(session.fake) == 1U);
+        "probe >file", &status) == WSH_ERR_MISMATCH);
+    CHECK(wsh_fake_runtime_call_count(session.fake) == 2U);
     stop_session(&session);
     return 1;
 }

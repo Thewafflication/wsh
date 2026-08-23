@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0045}
+\def\TCTitle{Exact raw launch and policy denial}
+\def\TCPurpose{Verify both obligations in WSH-REQ-0045.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0045}
+\def\TCDesignRef{ADR-0007 and M5 serializer design}
+\def\TCFeatureRef{rawexec exact command line and fail-closed policy}
+\def\TCTestTechnique{Boundary and authorization decision testing.}
+\def\TCPreconditions{A raw-command-line reporting probe is built.}
+\def\TCEnvironment{Native CreateProcessW launch.}
+\def\TCAssumptions{The probe can report GetCommandLineW exactly.}
+\def\TCInputData{Empty, quoted, Unicode, and denied raw command lines.}
+\def\TCInitialState{Policy is tested enabled and disabled.}
+\def\TCProcedure{Launch raw lines, then repeat with policy denial.}
+\def\TCExpectedResult{Allowed text is exact; denied launch has no effect.}
+\def\TCPostConditions{Every child is collected.}
+\TCTemplate
+\end{document}

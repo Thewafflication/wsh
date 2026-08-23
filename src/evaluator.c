@@ -18,6 +18,9 @@
 /** Forward declaration for an evaluator-owned AST copy. */
 typedef struct eval_node eval_node;
 
+/** Forward declaration for an owned typed launch plan. */
+typedef struct eval_launch_plan eval_launch_plan;
+
 /** Evaluator-owned copy of one AST node. */
 struct eval_node {
     /** Copied immutable node kind. */
@@ -134,6 +137,8 @@ struct wsh_evaluator {
     size_t function_capacity;
     /** Optional borrowed active substitution capture. */
     wsh_string_builder *capture;
+    /** Optional borrowed descriptor/launch plan for the active command. */
+    const wsh_runtime_launch_plan *active_plan;
 };
 
 /** Return whether multiplying two sizes is representable. */
@@ -683,6 +688,12 @@ static wsh_string_view eval_node_text(const eval_node *node)
     return wsh_string_bytes(node == NULL ? NULL : node->text);
 }
 
+/** Borrow one evaluator node's optional auxiliary text. */
+static wsh_string_view eval_node_auxiliary(const eval_node *node)
+{
+    return wsh_string_bytes(node == NULL ? NULL : node->auxiliary);
+}
+
 /** Decode one already validated UTF-8 scalar. */
 static size_t eval_scalar_width(const char *bytes, size_t length, size_t offset)
 {
@@ -1016,6 +1027,7 @@ static wsh_result eval_glob_words(
         memset(&request, 0, sizeof(request));
         request.operation = WSH_RUNTIME_MATCH_PATHS;
         request.subject = pattern;
+        request.context = evaluator->context;
         output = NULL;
         status = NULL;
         result = wsh_context_runtime_invoke(
@@ -1207,6 +1219,17 @@ static wsh_result eval_command_substitution(
     wsh_string_destroy(captured);
     return result;
 }
+
+/** Prepare and request one M5 named-pipe process substitution. */
+static wsh_result eval_process_substitution(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    eval_words *out_words);
+
+/** Validate scalar exported values before a launch request. */
+static wsh_result eval_validate_exports(
+    wsh_evaluator *evaluator,
+    const eval_node *node);
 
 /** Parse a strict positive decimal size. */
 static int eval_parse_index(wsh_string_view text, size_t *out_value)
@@ -1495,12 +1518,7 @@ static wsh_result eval_expand_expression(
     case WSH_AST_PROCESS_READ:
     case WSH_AST_PROCESS_WRITE:
     case WSH_AST_PROCESS_DUPLEX:
-        eval_diagnostic(
-            evaluator,
-            WSH_DIAGNOSTIC_EVALUATION,
-            "process substitution belongs to M5 runtime orchestration",
-            node);
-        return WSH_ERR_INVALID;
+        return eval_process_substitution(evaluator, node, out_words);
     default:
         eval_diagnostic(
             evaluator,
@@ -1820,6 +1838,737 @@ static wsh_result eval_words_suffix_value(
     return result;
 }
 
+/** Owned ordered descriptor actions for one prepared command. */
+typedef struct eval_redirection_set {
+    /** Published borrowed runtime action views. */
+    wsh_runtime_redirection *items;
+    /** Owned action operands backing the borrowed views. */
+    wsh_string **operands;
+    /** Number of initialized actions and operands. */
+    size_t count;
+} eval_redirection_set;
+
+/** One owned external command backing a borrowed runtime command. */
+typedef struct eval_launch_command {
+    /** Borrowed view published to the runtime. */
+    wsh_runtime_command runtime;
+    /** Owned command subject. */
+    wsh_string *subject;
+    /** Owned structured arguments. */
+    wsh_value *arguments;
+    /** Owned complete raw command line when raw is nonzero. */
+    wsh_string *raw_line;
+    /** Owned ordered redirections. */
+    eval_redirection_set redirections;
+} eval_launch_command;
+
+/** Owned one-command or pipeline plan. */
+struct eval_launch_plan {
+    /** Owned commands backing runtime_commands. */
+    eval_launch_command *commands;
+    /** Borrowed command views exposed to the runtime. */
+    wsh_runtime_command *runtime_commands;
+    /** Owned descriptor edges. */
+    wsh_runtime_pipeline_edge *edges;
+    /** Number of initialized commands. */
+    size_t command_count;
+    /** Published borrowed runtime plan. */
+    wsh_runtime_launch_plan runtime;
+};
+
+/** Compare a prepared expanded word with one literal command name. */
+static int eval_word_is(
+    const eval_words *words,
+    size_t index,
+    const char *text);
+
+/** Parse one decimal logical descriptor from an exact byte slice. */
+static int eval_parse_descriptor(
+    const char *bytes,
+    size_t length,
+    unsigned *out_descriptor)
+{
+    unsigned value;
+    size_t index;
+
+    if (bytes == NULL || length == 0U || out_descriptor == NULL) {
+        return 0;
+    }
+    value = 0U;
+    for (index = 0U; index < length; ++index) {
+        if (bytes[index] < '0' || bytes[index] > '9') {
+            return 0;
+        }
+        value = value * 10U + (unsigned)(bytes[index] - '0');
+        if (value > 9U) {
+            return 0;
+        }
+    }
+    *out_descriptor = value;
+    return 1;
+}
+
+/** Parse a redirection decoration into duplicate/close or selected target. */
+static wsh_result eval_parse_redirection_decoration(
+    wsh_string_view decoration,
+    unsigned default_target,
+    wsh_runtime_redirection_kind *kind,
+    unsigned *target,
+    unsigned *source)
+{
+    size_t equals;
+    size_t end;
+
+    *target = default_target;
+    *source = 0U;
+    if (decoration.length == 0U) {
+        return WSH_OK;
+    }
+    if (decoration.length < 3U || decoration.data[0] != '[' ||
+        decoration.data[decoration.length - 1U] != ']') {
+        return WSH_ERR_INTERNAL;
+    }
+    end = decoration.length - 1U;
+    equals = 1U;
+    while (equals < end && decoration.data[equals] != '=') {
+        equals += 1U;
+    }
+    if (!eval_parse_descriptor(
+            decoration.data + 1U, equals - 1U, target)) {
+        return WSH_ERR_INVALID;
+    }
+    if (equals == end) {
+        return WSH_OK;
+    }
+    if (equals + 1U == end) {
+        *kind = WSH_RUNTIME_REDIRECT_CLOSE;
+        return WSH_OK;
+    }
+    if (!eval_parse_descriptor(
+            decoration.data + equals + 1U,
+            end - equals - 1U,
+            source)) {
+        return WSH_ERR_INVALID;
+    }
+    *kind = WSH_RUNTIME_REDIRECT_DUPLICATE;
+    return WSH_OK;
+}
+
+/** Destroy one owned descriptor action set. */
+static void eval_redirection_set_destroy(
+    wsh_evaluator *evaluator,
+    eval_redirection_set *set)
+{
+    size_t index;
+
+    if (evaluator == NULL || set == NULL) {
+        return;
+    }
+    for (index = 0U; index < set->count; ++index) {
+        wsh_string_destroy(set->operands[index]);
+    }
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, set->items);
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, set->operands);
+    memset(set, 0, sizeof(*set));
+}
+
+/** Scan one here-document `$name` suffix. */
+static size_t eval_here_name_end(
+    const char *text,
+    size_t length,
+    size_t start)
+{
+    size_t position;
+
+    if (start >= length) {
+        return start;
+    }
+    if (text[start] == '*') {
+        return start + 1U;
+    }
+    if (text[start] >= '0' && text[start] <= '9') {
+        position = start + 1U;
+        while (position < length && text[position] >= '0' &&
+            text[position] <= '9') {
+            position += 1U;
+        }
+        return position;
+    }
+    if (!((text[start] >= 'A' && text[start] <= 'Z') ||
+          (text[start] >= 'a' && text[start] <= 'z') ||
+          text[start] == '_')) {
+        return start;
+    }
+    position = start + 1U;
+    while (position < length &&
+        ((text[position] >= 'A' && text[position] <= 'Z') ||
+         (text[position] >= 'a' && text[position] <= 'z') ||
+         (text[position] >= '0' && text[position] <= '9') ||
+         text[position] == '_')) {
+        position += 1U;
+    }
+    return position;
+}
+
+/** Expand unquoted here-document variable references. */
+static wsh_result eval_expand_here_body(
+    wsh_evaluator *evaluator,
+    wsh_string_view body,
+    wsh_string **out_body)
+{
+    wsh_string_builder *builder;
+    size_t offset;
+    size_t end;
+    size_t item_index;
+    wsh_string_view literal;
+    wsh_string_view name;
+    wsh_string_view item;
+    const wsh_value *value;
+    wsh_result result;
+
+    builder = NULL;
+    *out_body = NULL;
+    result = wsh_string_builder_create(
+        &evaluator->allocator, &evaluator->limits, &builder);
+    offset = 0U;
+    while (result == WSH_OK && offset < body.length) {
+        end = offset;
+        while (end < body.length && body.data[end] != '$') {
+            end += 1U;
+        }
+        literal.data = body.data + offset;
+        literal.length = end - offset;
+        result = wsh_string_builder_append(builder, literal);
+        if (result != WSH_OK || end == body.length) {
+            offset = end;
+            continue;
+        }
+        offset = end + 1U;
+        end = eval_here_name_end(body.data, body.length, offset);
+        if (end == offset) {
+            result = wsh_string_builder_append(
+                builder, wsh_string_view_from_cstr("$"));
+            continue;
+        }
+        name.data = body.data + offset;
+        name.length = end - offset;
+        result = wsh_context_get_variable(
+            evaluator->context, name, &value);
+        if (result != WSH_OK) {
+            result = WSH_OK;
+        }
+        for (item_index = 0U; result == WSH_OK &&
+             item_index < wsh_value_count(value); ++item_index) {
+            if (item_index != 0U) {
+                result = wsh_string_builder_append(
+                    builder, wsh_string_view_from_cstr(" "));
+            }
+            if (result == WSH_OK) {
+                result = wsh_value_at(value, item_index, &item);
+            }
+            if (result == WSH_OK) {
+                result = wsh_string_builder_append(builder, item);
+            }
+        }
+        offset = end;
+        if (offset < body.length && body.data[offset] == '^') {
+            offset += 1U;
+        }
+    }
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, out_body);
+    }
+    wsh_string_builder_destroy(builder);
+    return result;
+}
+
+/** Prepare every redirection in one simple command without an effect. */
+static wsh_result eval_prepare_redirections(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    eval_redirection_set *out_set)
+{
+    size_t redirection_count;
+    size_t index;
+    size_t prepared;
+    size_t bytes;
+    const eval_node *redirection;
+    wsh_string_view operation;
+    wsh_string_view decoration;
+    wsh_runtime_redirection action;
+    eval_words words;
+    wsh_string_view operand;
+    wsh_result result;
+
+    memset(out_set, 0, sizeof(*out_set));
+    redirection_count = 0U;
+    for (index = 0U; index < node->child_count; ++index) {
+        if (node->children[index]->kind == WSH_AST_REDIRECTION) {
+            redirection_count += 1U;
+        }
+    }
+    if (redirection_count == 0U) {
+        return WSH_OK;
+    }
+    if (!eval_multiply(
+            redirection_count, sizeof(*out_set->items), &bytes)) {
+        return WSH_ERR_RESOURCE;
+    }
+    out_set->items = (wsh_runtime_redirection *)eval_allocate(
+        evaluator, bytes);
+    if (!eval_multiply(
+            redirection_count, sizeof(*out_set->operands), &bytes)) {
+        eval_redirection_set_destroy(evaluator, out_set);
+        return WSH_ERR_RESOURCE;
+    }
+    out_set->operands = (wsh_string **)eval_allocate(evaluator, bytes);
+    if (out_set->items == NULL || out_set->operands == NULL) {
+        eval_redirection_set_destroy(evaluator, out_set);
+        return WSH_ERR_RESOURCE;
+    }
+    prepared = 0U;
+    result = WSH_OK;
+    for (index = 0U; result == WSH_OK && index < node->child_count;
+         ++index) {
+        redirection = node->children[index];
+        if (redirection->kind != WSH_AST_REDIRECTION) {
+            continue;
+        }
+        memset(&action, 0, sizeof(action));
+        operation = eval_node_text(redirection);
+        decoration = eval_node_auxiliary(redirection);
+        if (wsh_string_view_equal(
+                operation, wsh_string_view_from_cstr("<"))) {
+            action.kind = WSH_RUNTIME_REDIRECT_INPUT;
+            action.target_descriptor = 0U;
+        } else if (wsh_string_view_equal(
+                operation, wsh_string_view_from_cstr(">"))) {
+            action.kind = WSH_RUNTIME_REDIRECT_OUTPUT;
+            action.target_descriptor = 1U;
+        } else if (wsh_string_view_equal(
+                operation, wsh_string_view_from_cstr(">>"))) {
+            action.kind = WSH_RUNTIME_REDIRECT_APPEND;
+            action.target_descriptor = 1U;
+        } else if (wsh_string_view_equal(
+                operation, wsh_string_view_from_cstr("<<"))) {
+            action.kind = WSH_RUNTIME_REDIRECT_HERE;
+            action.target_descriptor = 0U;
+        } else {
+            result = WSH_ERR_INTERNAL;
+        }
+        if (result == WSH_OK) {
+            result = eval_parse_redirection_decoration(
+                decoration,
+                action.target_descriptor,
+                &action.kind,
+                &action.target_descriptor,
+                &action.source_descriptor);
+        }
+        if (result == WSH_OK &&
+            action.kind != WSH_RUNTIME_REDIRECT_DUPLICATE &&
+            action.kind != WSH_RUNTIME_REDIRECT_CLOSE) {
+            if (action.kind == WSH_RUNTIME_REDIRECT_HERE) {
+                if (redirection->child_count != 2U ||
+                    redirection->children[1]->kind != WSH_AST_HERE_BODY) {
+                    result = WSH_ERR_INTERNAL;
+                } else {
+                    operand = eval_node_text(redirection->children[1]);
+                    if (redirection->children[0]->kind ==
+                        WSH_AST_QUOTED_WORD) {
+                        result = wsh_string_create(
+                            &evaluator->allocator,
+                            &evaluator->limits,
+                            operand,
+                            &out_set->operands[prepared]);
+                    } else {
+                        result = eval_expand_here_body(
+                            evaluator,
+                            operand,
+                            &out_set->operands[prepared]);
+                    }
+                }
+            } else {
+                eval_words_init(evaluator, &words);
+                if (redirection->child_count != 1U) {
+                    result = WSH_ERR_INTERNAL;
+                } else {
+                    result = eval_expand_expression(
+                        evaluator, redirection->children[0], &words);
+                }
+                if (result == WSH_OK) {
+                    result = eval_glob_words(evaluator, redirection, &words);
+                }
+                if (result == WSH_OK && words.count != 1U) {
+                    result = WSH_ERR_MISMATCH;
+                }
+                if (result == WSH_OK) {
+                    result = wsh_string_create(
+                        &evaluator->allocator,
+                        &evaluator->limits,
+                        wsh_string_bytes(words.items[0].text),
+                        &out_set->operands[prepared]);
+                }
+                eval_words_destroy(&words);
+            }
+            if (result == WSH_OK) {
+                action.operand = wsh_string_bytes(
+                    out_set->operands[prepared]);
+            }
+        }
+        if (result == WSH_OK) {
+            out_set->items[prepared] = action;
+            prepared += 1U;
+            out_set->count = prepared;
+        }
+    }
+    if (result != WSH_OK) {
+        eval_redirection_set_destroy(evaluator, out_set);
+    }
+    return result;
+}
+
+/** Destroy one owned launch command. */
+static void eval_launch_command_destroy(
+    wsh_evaluator *evaluator,
+    eval_launch_command *command)
+{
+    if (command == NULL) {
+        return;
+    }
+    wsh_string_destroy(command->subject);
+    wsh_value_destroy(command->arguments);
+    wsh_string_destroy(command->raw_line);
+    eval_redirection_set_destroy(evaluator, &command->redirections);
+    memset(command, 0, sizeof(*command));
+}
+
+/** Prepare one external-only simple command for a pipeline/provider. */
+static wsh_result eval_prepare_external_command(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    eval_launch_command *out_command)
+{
+    eval_words words;
+    size_t index;
+    size_t first;
+    wsh_result result;
+
+    memset(out_command, 0, sizeof(*out_command));
+    if (node == NULL || node->kind != WSH_AST_SIMPLE) {
+        return WSH_ERR_INVALID;
+    }
+    eval_words_init(evaluator, &words);
+    result = WSH_OK;
+    for (index = 0U; result == WSH_OK && index < node->child_count;
+         ++index) {
+        if (node->children[index]->kind == WSH_AST_ASSIGNMENT) {
+            result = WSH_ERR_INVALID;
+        } else if (node->children[index]->kind != WSH_AST_REDIRECTION) {
+            result = eval_expand_expression(
+                evaluator, node->children[index], &words);
+        }
+    }
+    if (result == WSH_OK) {
+        result = eval_glob_words(evaluator, node, &words);
+    }
+    if (result == WSH_OK && words.count == 0U) {
+        result = WSH_ERR_INVALID;
+    }
+    first = 0U;
+    if (result == WSH_OK && eval_word_is(&words, 0U, "rawexec")) {
+        if (words.count != 3U) {
+            result = WSH_ERR_INVALID;
+        } else {
+            out_command->runtime.raw = 1;
+            out_command->runtime.raw_command_line =
+                wsh_string_bytes(words.items[2].text);
+            first = 1U;
+        }
+    } else if (result == WSH_OK &&
+        eval_word_is(&words, 0U, "command::external")) {
+        if (words.count < 2U) {
+            result = WSH_ERR_INVALID;
+        } else {
+            first = 1U;
+        }
+    } else if (result == WSH_OK && eval_word_is(&words, 0U, "echo")) {
+        out_command->runtime.shell_echo = 1;
+    }
+    if (result == WSH_OK) {
+        result = wsh_string_create(
+            &evaluator->allocator,
+            &evaluator->limits,
+            wsh_string_bytes(words.items[first].text),
+            &out_command->subject);
+    }
+    if (result == WSH_OK && !out_command->runtime.raw) {
+        result = eval_words_suffix_value(
+            evaluator, &words, first + 1U, &out_command->arguments);
+    }
+    if (result == WSH_OK) {
+        result = eval_prepare_redirections(
+            evaluator, node, &out_command->redirections);
+    }
+    if (result == WSH_OK) {
+        out_command->runtime.subject =
+            wsh_string_bytes(out_command->subject);
+        out_command->runtime.arguments = out_command->arguments;
+        out_command->runtime.redirections =
+            out_command->redirections.items;
+        out_command->runtime.redirection_count =
+            out_command->redirections.count;
+        if (out_command->runtime.raw) {
+            out_command->runtime.raw_command_line =
+                wsh_string_bytes(words.items[2].text);
+        }
+    }
+    if (out_command->runtime.raw && result == WSH_OK) {
+        result = wsh_string_create(
+            &evaluator->allocator,
+            &evaluator->limits,
+            wsh_string_bytes(words.items[2].text),
+            &out_command->raw_line);
+        if (result == WSH_OK) {
+            out_command->runtime.raw_command_line =
+                wsh_string_bytes(out_command->raw_line);
+        }
+    }
+    eval_words_destroy(&words);
+    if (result != WSH_OK) {
+        eval_launch_command_destroy(evaluator, out_command);
+    }
+    return result;
+}
+
+/** Destroy one owned launch plan. */
+static void eval_launch_plan_destroy(
+    wsh_evaluator *evaluator,
+    eval_launch_plan *plan)
+{
+    size_t index;
+
+    if (evaluator == NULL || plan == NULL) {
+        return;
+    }
+    for (index = 0U; index < plan->command_count; ++index) {
+        eval_launch_command_destroy(evaluator, &plan->commands[index]);
+    }
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, plan->commands);
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, plan->runtime_commands);
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, plan->edges);
+    memset(plan, 0, sizeof(*plan));
+}
+
+/** Parse one optional pipeline descriptor decoration. */
+static wsh_result eval_parse_pipeline_edge(
+    wsh_string_view decoration,
+    wsh_runtime_pipeline_edge *edge)
+{
+    size_t equals;
+    size_t end;
+
+    edge->output_descriptor = 1U;
+    edge->input_descriptor = 0U;
+    if (decoration.length == 0U) {
+        return WSH_OK;
+    }
+    if (decoration.length < 3U || decoration.data[0] != '[' ||
+        decoration.data[decoration.length - 1U] != ']') {
+        return WSH_ERR_INTERNAL;
+    }
+    end = decoration.length - 1U;
+    equals = 1U;
+    while (equals < end && decoration.data[equals] != '=') {
+        equals += 1U;
+    }
+    if (equals == end) {
+        return eval_parse_descriptor(
+            decoration.data + 1U,
+            end - 1U,
+            &edge->output_descriptor) ? WSH_OK : WSH_ERR_INVALID;
+    }
+    if (!eval_parse_descriptor(
+            decoration.data + 1U,
+            equals - 1U,
+            &edge->input_descriptor) ||
+        !eval_parse_descriptor(
+            decoration.data + equals + 1U,
+            end - equals - 1U,
+            &edge->output_descriptor)) {
+        return WSH_ERR_INVALID;
+    }
+    return WSH_OK;
+}
+
+/** Prepare an external simple command or external-only linear pipeline. */
+static wsh_result eval_prepare_launch_plan(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    unsigned flags,
+    eval_launch_plan *out_plan)
+{
+    size_t command_count;
+    size_t edge_count;
+    size_t bytes;
+    size_t index;
+    size_t prepared;
+    const eval_node *command_node;
+    const eval_node *edge_node;
+    wsh_result result;
+
+    memset(out_plan, 0, sizeof(*out_plan));
+    if (node->kind == WSH_AST_SIMPLE) {
+        command_count = 1U;
+        edge_count = 0U;
+    } else if (node->kind == WSH_AST_PIPELINE &&
+        node->child_count >= 3U && (node->child_count & 1U) != 0U) {
+        command_count = (node->child_count + 1U) / 2U;
+        edge_count = command_count - 1U;
+    } else {
+        return WSH_ERR_INVALID;
+    }
+    if (!eval_multiply(
+            command_count, sizeof(*out_plan->commands), &bytes)) {
+        return WSH_ERR_RESOURCE;
+    }
+    out_plan->commands = (eval_launch_command *)eval_allocate(
+        evaluator, bytes);
+    if (!eval_multiply(
+            command_count, sizeof(*out_plan->runtime_commands), &bytes)) {
+        eval_launch_plan_destroy(evaluator, out_plan);
+        return WSH_ERR_RESOURCE;
+    }
+    out_plan->runtime_commands = (wsh_runtime_command *)eval_allocate(
+        evaluator, bytes);
+    if (out_plan->commands == NULL || out_plan->runtime_commands == NULL) {
+        eval_launch_plan_destroy(evaluator, out_plan);
+        return WSH_ERR_RESOURCE;
+    }
+    if (edge_count != 0U) {
+        if (!eval_multiply(edge_count, sizeof(*out_plan->edges), &bytes)) {
+            eval_launch_plan_destroy(evaluator, out_plan);
+            return WSH_ERR_RESOURCE;
+        }
+        out_plan->edges = (wsh_runtime_pipeline_edge *)eval_allocate(
+            evaluator, bytes);
+        if (out_plan->edges == NULL) {
+            eval_launch_plan_destroy(evaluator, out_plan);
+            return WSH_ERR_RESOURCE;
+        }
+    }
+    prepared = 0U;
+    result = WSH_OK;
+    for (index = 0U; result == WSH_OK && index < command_count; ++index) {
+        command_node = node->kind == WSH_AST_SIMPLE ? node :
+            node->children[index * 2U];
+        result = eval_prepare_external_command(
+            evaluator, command_node, &out_plan->commands[index]);
+        if (result == WSH_OK) {
+            out_plan->runtime_commands[index] =
+                out_plan->commands[index].runtime;
+            prepared += 1U;
+            out_plan->command_count = prepared;
+        }
+        if (result == WSH_OK && index < edge_count) {
+            edge_node = node->children[index * 2U + 1U];
+            if (edge_node->kind != WSH_AST_PIPE_OPERATOR) {
+                result = WSH_ERR_INTERNAL;
+            } else {
+                result = eval_parse_pipeline_edge(
+                    eval_node_auxiliary(edge_node),
+                    &out_plan->edges[index]);
+            }
+        }
+    }
+    if (result == WSH_OK) {
+        out_plan->runtime.commands = out_plan->runtime_commands;
+        out_plan->runtime.command_count = command_count;
+        out_plan->runtime.edges = out_plan->edges;
+        out_plan->runtime.edge_count = edge_count;
+        out_plan->runtime.flags = flags;
+    } else {
+        eval_launch_plan_destroy(evaluator, out_plan);
+    }
+    return result;
+}
+
+/** Prepare and request one M5 named-pipe process substitution. */
+static wsh_result eval_process_substitution(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    eval_words *out_words)
+{
+    const eval_node *provider;
+    eval_launch_plan plan;
+    wsh_runtime_request request;
+    wsh_value *output;
+    wsh_status_list *status;
+    wsh_string_view item;
+    const char *direction;
+    size_t index;
+    const wsh_runtime_launch_plan *previous_plan;
+    wsh_result result;
+
+    if (node->child_count != 1U) {
+        return WSH_ERR_INTERNAL;
+    }
+    provider = node->children[0];
+    while ((provider->kind == WSH_AST_BLOCK ||
+            provider->kind == WSH_AST_COMMAND_LIST ||
+            provider->kind == WSH_AST_INPUT) &&
+           provider->child_count == 1U) {
+        provider = provider->children[0];
+    }
+    result = eval_prepare_launch_plan(evaluator, provider, 0U, &plan);
+    previous_plan = evaluator->active_plan;
+    if (result == WSH_OK) {
+        evaluator->active_plan = &plan.runtime;
+        result = eval_validate_exports(evaluator, node);
+    }
+    direction = node->kind == WSH_AST_PROCESS_READ ? "read" :
+        node->kind == WSH_AST_PROCESS_WRITE ? "write" : "duplex";
+    memset(&request, 0, sizeof(request));
+    request.operation = WSH_RUNTIME_PROCESS_SUBSTITUTION;
+    request.subject = wsh_string_view_from_cstr(direction);
+    request.context = evaluator->context;
+    request.launch_plan = &plan.runtime;
+    output = NULL;
+    status = NULL;
+    if (result == WSH_OK) {
+        result = wsh_context_runtime_invoke(
+            evaluator->context, &request, &output, &status);
+    }
+    if (result == WSH_OK &&
+        (!wsh_status_list_is_success(status) ||
+         wsh_value_count(output) == 0U)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    for (index = 0U; result == WSH_OK &&
+         index < wsh_value_count(output); ++index) {
+        result = wsh_value_at(output, index, &item);
+        if (result == WSH_OK) {
+            result = eval_words_append(evaluator, out_words, item, 0);
+        }
+    }
+    wsh_status_list_destroy(status);
+    wsh_value_destroy(output);
+    evaluator->active_plan = previous_plan;
+    eval_launch_plan_destroy(evaluator, &plan);
+    if (result != WSH_OK) {
+        eval_diagnostic(
+            evaluator,
+            WSH_DIAGNOSTIC_RUNTIME,
+            "process substitution provider failed",
+            node);
+    }
+    return result;
+}
+
 /** Parse and evaluate strict UTF-8 in the existing evaluator context. */
 static wsh_result eval_text(
     wsh_evaluator *evaluator,
@@ -1912,6 +2661,8 @@ static wsh_result eval_runtime(
     request.operation = operation;
     request.subject = subject;
     request.arguments = arguments;
+    request.context = evaluator->context;
+    request.launch_plan = evaluator->active_plan;
     output = NULL;
     *out_status = NULL;
     result = wsh_context_runtime_invoke(
@@ -2129,6 +2880,7 @@ static wsh_result eval_builtin_source(
     request.operation = WSH_RUNTIME_READ_SOURCE;
     request.subject = wsh_string_bytes(words->items[1].text);
     request.arguments = arguments;
+    request.context = evaluator->context;
     output = NULL;
     read_status = NULL;
     pushed_scope = 0;
@@ -2304,6 +3056,52 @@ static wsh_result eval_builtin(
     if (eval_word_is(words, 0U, "echo")) {
         return eval_builtin_echo(evaluator, node, words, out_status);
     }
+    if (eval_word_is(words, 0U, "cd")) {
+        if (words->count > 2U) {
+            return WSH_ERR_INVALID;
+        }
+        value = NULL;
+        if (words->count == 2U) {
+            result = eval_words_suffix_value(
+                evaluator, words, 1U, &value);
+        } else {
+            result = eval_get_variable(
+                evaluator,
+                wsh_string_view_from_cstr("home"),
+                &value);
+        }
+        if (result == WSH_OK && wsh_value_count(value) != 1U) {
+            result = WSH_ERR_MISMATCH;
+        }
+        if (result == WSH_OK) {
+            result = eval_runtime(
+                evaluator,
+                node,
+                WSH_RUNTIME_WORKING_DIRECTORY,
+                wsh_string_view_from_cstr("set"),
+                value,
+                0,
+                out_status);
+        }
+        wsh_value_destroy(value);
+        return result;
+    }
+    if (eval_word_is(words, 0U, "wait")) {
+        value = NULL;
+        result = eval_words_suffix_value(evaluator, words, 1U, &value);
+        if (result == WSH_OK) {
+            result = eval_runtime(
+                evaluator,
+                node,
+                WSH_RUNTIME_WAIT,
+                wsh_string_view_from_cstr("children"),
+                value,
+                0,
+                out_status);
+        }
+        wsh_value_destroy(value);
+        return result;
+    }
     if (eval_word_is(words, 0U, "local")) {
         return eval_builtin_local(
             evaluator, node, words, assignments,
@@ -2471,7 +3269,26 @@ static wsh_result eval_validate_exports(
     wsh_string_view name;
     const wsh_value *value;
     int exported;
+    int nested_only;
+    size_t command_index;
+    wsh_string_view subject;
     wsh_result result;
+
+    nested_only = evaluator->active_plan != NULL &&
+        evaluator->active_plan->command_count != 0U;
+    for (command_index = 0U; nested_only &&
+         command_index < evaluator->active_plan->command_count;
+         ++command_index) {
+        subject = evaluator->active_plan->commands[command_index].subject;
+        nested_only = subject.length >= 4U &&
+            subject.data[subject.length - 4U] == '.' &&
+            (subject.data[subject.length - 3U] == 'w' ||
+             subject.data[subject.length - 3U] == 'W') &&
+            (subject.data[subject.length - 2U] == 's' ||
+             subject.data[subject.length - 2U] == 'S') &&
+            (subject.data[subject.length - 1U] == 'h' ||
+             subject.data[subject.length - 1U] == 'H');
+    }
 
     for (index = 0U; index <
          wsh_context_variable_count(evaluator->context); ++index) {
@@ -2480,7 +3297,7 @@ static wsh_result eval_validate_exports(
         if (result != WSH_OK) {
             return result;
         }
-        if (exported && wsh_value_count(value) != 1U &&
+        if (exported && !nested_only && wsh_value_count(value) != 1U &&
             !wsh_string_view_equal(
                 name, wsh_string_view_from_cstr("path"))) {
             eval_diagnostic(
@@ -2575,20 +3392,29 @@ static wsh_result eval_simple_command(
     int temporary_scope;
     int handled;
     size_t function_index;
-    wsh_value *arguments;
+    wsh_value *command_arguments;
     wsh_string_view subject;
+    size_t subject_index;
+    int force_external;
+    eval_redirection_set redirections;
+    wsh_runtime_command runtime_command;
+    wsh_runtime_launch_plan runtime_plan;
+    const wsh_runtime_launch_plan *previous_plan;
+    int plan_active;
+    wsh_value_builder *empty_builder;
+    wsh_value *empty_write;
 
     *out_status = NULL;
+    memset(&redirections, 0, sizeof(redirections));
+    memset(&runtime_command, 0, sizeof(runtime_command));
+    memset(&runtime_plan, 0, sizeof(runtime_plan));
+    command_arguments = NULL;
+    empty_builder = NULL;
+    empty_write = NULL;
+    previous_plan = evaluator->active_plan;
+    plan_active = 0;
     assignment_count = 0U;
     for (index = 0U; index < node->child_count; ++index) {
-        if (node->children[index]->kind == WSH_AST_REDIRECTION) {
-            eval_diagnostic(
-                evaluator,
-                WSH_DIAGNOSTIC_EVALUATION,
-                "redirection belongs to M5 runtime orchestration",
-                node->children[index]);
-            return WSH_ERR_INVALID;
-        }
         if (node->children[index]->kind == WSH_AST_ASSIGNMENT) {
             assignment_count += 1U;
         }
@@ -2613,7 +3439,7 @@ static wsh_result eval_simple_command(
             if (result == WSH_OK) {
                 prepared += 1U;
             }
-        } else {
+        } else if (node->children[index]->kind != WSH_AST_REDIRECTION) {
             result = eval_expand_expression(
                 evaluator, node->children[index], &words);
         }
@@ -2644,6 +3470,39 @@ static wsh_result eval_simple_command(
         if (result == WSH_OK) {
             eval_scope_commit(evaluator);
             temporary_scope = 0;
+            result = eval_prepare_redirections(
+                evaluator, node, &redirections);
+        }
+        if (result == WSH_OK && redirections.count != 0U) {
+            result = wsh_value_builder_create(
+                &evaluator->allocator,
+                &evaluator->limits,
+                &empty_builder);
+            if (result == WSH_OK) {
+                result = wsh_value_builder_append(
+                    empty_builder, wsh_string_view_from_cstr(""));
+            }
+            if (result == WSH_OK) {
+                result = wsh_value_builder_finish(
+                    empty_builder, &empty_write);
+            }
+            runtime_command.redirections = redirections.items;
+            runtime_command.redirection_count = redirections.count;
+            runtime_plan.commands = &runtime_command;
+            runtime_plan.command_count = 1U;
+            evaluator->active_plan = &runtime_plan;
+            if (result == WSH_OK) {
+                result = eval_runtime(
+                    evaluator,
+                    node,
+                    WSH_RUNTIME_WRITE,
+                    wsh_string_view_from_cstr("stdout"),
+                    empty_write,
+                    0,
+                    out_status);
+            }
+            evaluator->active_plan = previous_plan;
+        } else if (result == WSH_OK) {
             result = eval_status_one(evaluator, 0U, out_status);
         }
         if (temporary_scope) {
@@ -2679,35 +3538,80 @@ static wsh_result eval_simple_command(
         }
     }
     if (result == WSH_OK) {
-        subject = wsh_string_bytes(words.items[0].text);
-        function_index = eval_find_function(evaluator, subject);
-        if (function_index < evaluator->function_count) {
+        result = eval_prepare_redirections(
+            evaluator, node, &redirections);
+    }
+    subject_index = 0U;
+    force_external = 0;
+    if (result == WSH_OK && eval_word_is(&words, 0U, "rawexec")) {
+        if (words.count != 3U) {
+            result = WSH_ERR_INVALID;
+        } else {
+            subject_index = 1U;
+            force_external = 1;
+            runtime_command.raw = 1;
+            runtime_command.raw_command_line =
+                wsh_string_bytes(words.items[2].text);
+        }
+    } else if (result == WSH_OK &&
+        eval_word_is(&words, 0U, "command::external")) {
+        if (words.count < 2U) {
+            result = WSH_ERR_INVALID;
+        } else {
+            subject_index = 1U;
+            force_external = 1;
+        }
+    }
+    if (result == WSH_OK && !runtime_command.raw) {
+        result = eval_words_suffix_value(
+            evaluator,
+            &words,
+            subject_index + 1U,
+            &command_arguments);
+    }
+    if (result == WSH_OK) {
+        subject = wsh_string_bytes(words.items[subject_index].text);
+        runtime_command.subject = subject;
+        runtime_command.arguments = command_arguments;
+        runtime_command.redirections = redirections.items;
+        runtime_command.redirection_count = redirections.count;
+        runtime_plan.commands = &runtime_command;
+        runtime_plan.command_count = 1U;
+        runtime_plan.flags = evaluator->capture != NULL ?
+            WSH_RUNTIME_LAUNCH_CAPTURE : 0U;
+        evaluator->active_plan = &runtime_plan;
+        plan_active = 1;
+        function_index = force_external ? evaluator->function_count :
+            eval_find_function(evaluator, subject);
+        if (!force_external &&
+            function_index < evaluator->function_count) {
             result = eval_call_function(
                 evaluator, node, function_index, &words, out_status);
         } else {
-            result = eval_builtin(
-                evaluator, node, &words, assignments,
-                assignment_count, &handled, out_status);
+            handled = 0;
+            if (!force_external) {
+                result = eval_builtin(
+                    evaluator, node, &words, assignments,
+                    assignment_count, &handled, out_status);
+            }
             if (result == WSH_OK && !handled) {
                 result = eval_validate_exports(evaluator, node);
-                arguments = NULL;
-                if (result == WSH_OK) {
-                    result = eval_words_suffix_value(
-                        evaluator, &words, 1U, &arguments);
-                }
                 if (result == WSH_OK) {
                     result = eval_runtime(
                         evaluator,
                         node,
                         WSH_RUNTIME_LAUNCH,
                         subject,
-                        arguments,
+                        command_arguments,
                         1,
                         out_status);
                 }
-                wsh_value_destroy(arguments);
             }
         }
+    }
+    if (plan_active) {
+        evaluator->active_plan = previous_plan;
+        plan_active = 0;
     }
     if (temporary_scope) {
         restore_result = eval_scope_pop(evaluator);
@@ -2717,6 +3621,13 @@ static wsh_result eval_simple_command(
     }
 
 cleanup:
+    if (plan_active) {
+        evaluator->active_plan = previous_plan;
+    }
+    wsh_value_destroy(command_arguments);
+    wsh_value_builder_destroy(empty_builder);
+    wsh_value_destroy(empty_write);
+    eval_redirection_set_destroy(evaluator, &redirections);
     for (assignment_index = 0U; assignment_index < prepared;
          ++assignment_index) {
         eval_assignment_destroy(&assignments[assignment_index]);
@@ -3108,6 +4019,146 @@ static wsh_result eval_switch_command(
     return result;
 }
 
+/** Reconstruct the current published status value as an owned status list. */
+static wsh_result eval_current_status(
+    wsh_evaluator *evaluator,
+    wsh_status_list **out_status)
+{
+    wsh_value *value;
+    wsh_status_builder *builder;
+    size_t index;
+    wsh_string_view item;
+    uint32_t code;
+    wsh_result result;
+
+    value = NULL;
+    builder = NULL;
+    *out_status = NULL;
+    result = eval_get_variable(
+        evaluator, wsh_string_view_from_cstr("status"), &value);
+    if (result == WSH_OK && wsh_value_count(value) == 0U) {
+        wsh_value_destroy(value);
+        return eval_status_one(evaluator, 0U, out_status);
+    }
+    if (result == WSH_OK) {
+        result = wsh_status_builder_create(
+            &evaluator->allocator,
+            &evaluator->limits,
+            &builder);
+    }
+    for (index = 0U; result == WSH_OK &&
+         index < wsh_value_count(value); ++index) {
+        result = wsh_value_at(value, index, &item);
+        if (result == WSH_OK && !eval_parse_status(item, &code)) {
+            result = WSH_ERR_INTERNAL;
+        }
+        if (result == WSH_OK) {
+            result = wsh_status_builder_append(builder, code);
+        }
+    }
+    if (result == WSH_OK) {
+        result = wsh_status_builder_finish(builder, out_status);
+    }
+    wsh_status_builder_destroy(builder);
+    wsh_value_destroy(value);
+    return result;
+}
+
+/** Execute one external-only foreground pipeline through the runtime. */
+static wsh_result eval_pipeline_command(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    wsh_status_list **out_status)
+{
+    eval_launch_plan plan;
+    const wsh_runtime_launch_plan *previous_plan;
+    unsigned flags;
+    wsh_result result;
+
+    flags = evaluator->capture != NULL ? WSH_RUNTIME_LAUNCH_CAPTURE : 0U;
+    result = eval_prepare_launch_plan(evaluator, node, flags, &plan);
+    previous_plan = evaluator->active_plan;
+    if (result == WSH_OK) {
+        evaluator->active_plan = &plan.runtime;
+        result = eval_validate_exports(evaluator, node);
+    }
+    if (result == WSH_OK) {
+        result = eval_runtime(
+            evaluator,
+            node,
+            WSH_RUNTIME_PIPELINE,
+            wsh_string_view_from_cstr("pipeline"),
+            NULL,
+            1,
+            out_status);
+    }
+    evaluator->active_plan = previous_plan;
+    eval_launch_plan_destroy(evaluator, &plan);
+    return result;
+}
+
+/** Launch one external command or pipeline in the background. */
+static wsh_result eval_background_command(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    wsh_status_list **out_status)
+{
+    eval_launch_plan plan;
+    wsh_runtime_request request;
+    wsh_value *output;
+    wsh_status_list *launch_status;
+    const wsh_runtime_launch_plan *previous_plan;
+    wsh_result result;
+
+    if (node->child_count != 1U) {
+        return WSH_ERR_INTERNAL;
+    }
+    result = eval_prepare_launch_plan(
+        evaluator,
+        node->children[0],
+        WSH_RUNTIME_LAUNCH_BACKGROUND,
+        &plan);
+    previous_plan = evaluator->active_plan;
+    if (result == WSH_OK) {
+        evaluator->active_plan = &plan.runtime;
+        result = eval_validate_exports(evaluator, node);
+    }
+    memset(&request, 0, sizeof(request));
+    request.operation = plan.runtime.edge_count == 0U ?
+        WSH_RUNTIME_LAUNCH : WSH_RUNTIME_PIPELINE;
+    request.subject = wsh_string_view_from_cstr("background");
+    request.context = evaluator->context;
+    request.launch_plan = &plan.runtime;
+    output = NULL;
+    launch_status = NULL;
+    if (result == WSH_OK) {
+        result = wsh_context_runtime_invoke(
+            evaluator->context,
+            &request,
+            &output,
+            &launch_status);
+    }
+    if (result == WSH_OK &&
+        wsh_status_list_is_success(launch_status) &&
+        wsh_value_count(output) == 1U) {
+        result = wsh_context_set_variable(
+            evaluator->context,
+            wsh_string_view_from_cstr("apid"),
+            output);
+        if (result == WSH_OK) {
+            result = eval_current_status(evaluator, out_status);
+        }
+    } else if (result == WSH_OK) {
+        *out_status = launch_status;
+        launch_status = NULL;
+    }
+    wsh_value_destroy(output);
+    wsh_status_list_destroy(launch_status);
+    evaluator->active_plan = previous_plan;
+    eval_launch_plan_destroy(evaluator, &plan);
+    return result;
+}
+
 /** Evaluate one copied semantic node. */
 static wsh_result eval_execute(
     wsh_evaluator *evaluator,
@@ -3215,13 +4266,17 @@ static wsh_result eval_execute(
         }
         break;
     case WSH_AST_PIPELINE:
+        result = eval_pipeline_command(evaluator, node, out_status);
+        break;
     case WSH_AST_BACKGROUND:
+        result = eval_background_command(evaluator, node, out_status);
+        break;
     case WSH_AST_REDIRECTION:
     case WSH_AST_PIPE_OPERATOR:
         eval_diagnostic(
             evaluator,
             WSH_DIAGNOSTIC_EVALUATION,
-            "pipeline, background, and redirection effects belong to M5",
+            "descriptor metadata cannot execute without its command",
             node);
         result = WSH_ERR_INVALID;
         break;

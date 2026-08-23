@@ -148,6 +148,32 @@ The evaluator is portable C99 and imports no Windows API. Real path
 enumeration, environment publication, process launch, handles, named pipes,
 jobs, and child containment remain assigned to M5.
 
+### 6.4 M5 Windows Runtime Control Record
+
+M5 moves the effect boundary into an isolated Windows runtime. Structured
+launches use a separately resolved executable, deterministic argument
+serialization, explicit environment and directory, and ordered descriptor
+actions. Resolution never invokes an intermediate interpreter, association,
+App Paths, `PATHEXT`, or a URL handler. Raw launch is a distinct fail-closed
+policy capability.
+
+Every WSH-created handle is non-inheritable except during a serialized legacy
+launch interval. Modern systems receive an explicit kernel handle list through
+dynamically resolved APIs; Windows 2000 uses the reviewed ADR-0008 fallback.
+Pipelines prepare all resources and create stages suspended, then either resume
+all or cancel and collect every partial child. Jobs contain descendants where
+the host permits assignment; a tracked-process fallback remains observable.
+
+Environment blocks, executable candidates, path entries, named-pipe peers,
+and child output are untrusted. The runtime validates UTF-16 conversion, names,
+case collisions, lengths, descriptor ranges, child counts, command-line size,
+capture size, and wait deadlines before or during bounded ownership. Named
+pipes use a first local instance and the process token's default DACL. The 18
+allocated M5 controlled tests cover launch, resource, abuse, and recovery
+cases across x86/x64 Debug and Release. Static PE inspection also proves that
+optional modern handle-list and job APIs remain dynamically resolved and that
+no implicit-launch API enters the import table.
+
 ## 7. Secure Failure and Recovery
 
 Parsing and launch preparation fail before effect. Partially started pipelines
@@ -164,7 +190,7 @@ verification into a pass.
 The product designs no cryptographic algorithm. It uses reviewed operating-
 system or pinned dependency implementations for entropy, SHA-256, signatures,
 and provenance verification. The private environment-envelope nonce is an
-instance-authentication aid, not a durable secret or cross-user security token.
+instance-correlation aid, not a durable secret or cross-user security token.
 
 Private signing keys never enter the repository or ordinary build logs. WSH
 does not claim command-line arguments are secret. Trace and version output

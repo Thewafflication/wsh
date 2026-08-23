@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0051}
+\def\TCTitle{Named-pipe process substitution}
+\def\TCPurpose{Verify bounded named-pipe substitution for WSH-REQ-0051.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0051}
+\def\TCDesignRef{M5 design: Jobs, Cancellation, and Process Substitution}
+\def\TCFeatureRef{read, write, duplex pipe paths and provider lifecycle}
+\def\TCTestTechnique{Use-case, misuse-case, and resource testing.}
+\def\TCPreconditions{Pipe consumer and provider probes are built.}
+\def\TCEnvironment{Local Windows named pipes under the process default DACL.}
+\def\TCAssumptions{Remote clients are rejected and first instance is exclusive.}
+\def\TCInputData{Read, write, duplex, unopened, and hostile peer cases.}
+\def\TCInitialState{No substitution or provider is registered.}
+\def\TCProcedure{Exchange exact bytes, cancel unopened peers, and inspect cleanup.}
+\def\TCExpectedResult{Paths work in direction and all bounded owners terminate.}
+\def\TCPostConditions{No pipe instance, worker, or provider remains.}
+\TCTemplate
+\end{document}

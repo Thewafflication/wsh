@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0070}
+\def\TCTitle{Concurrent Windows runtime isolation}
+\def\TCPurpose{Verify M5 context ownership in WSH-REQ-0070.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0070}
+\def\TCDesignRef{M5 design: Windows Runtime Ownership}
+\def\TCFeatureRef{isolated directories, environments, descriptors, and jobs}
+\def\TCTestTechnique{Concurrency and state-isolation testing.}
+\def\TCPreconditions{Two runtime/context pairs can launch probes.}
+\def\TCEnvironment{One host process with distinct test directories.}
+\def\TCAssumptions{Each context executes on only one thread at a time.}
+\def\TCInputData{Distinct cwd, variables, files, and background children.}
+\def\TCInitialState{Both registries are empty.}
+\def\TCProcedure{Run both contexts concurrently and cross-check observations.}
+\def\TCExpectedResult{No mutable state or resource crosses contexts.}
+\def\TCPostConditions{Both contexts destroy independently.}
+\TCTemplate
+\end{document}

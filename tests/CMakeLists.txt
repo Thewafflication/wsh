@@ -15,12 +15,31 @@ target_include_directories(
 target_link_libraries(parser-tests PRIVATE wsh_core)
 
 add_executable(evaluator-tests evaluator_tests.c)
+add_executable(runtime-probe helpers/runtime_probe.c)
+add_executable(windows-runtime-tests windows_runtime_tests.c)
 target_include_directories(
     evaluator-tests
     PRIVATE
         "${CMAKE_SOURCE_DIR}/include"
 )
 target_link_libraries(evaluator-tests PRIVATE wsh_core)
+target_include_directories(
+    runtime-probe
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(runtime-probe PRIVATE wsh_core)
+target_include_directories(
+    windows-runtime-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(
+    windows-runtime-tests
+    PRIVATE
+        wsh_windows_runtime
+        wsh_core
+)
 
 add_executable(
     frontend-tests
@@ -37,6 +56,8 @@ target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
 wsh_configure_executable(evaluator-tests)
+wsh_configure_executable(runtime-probe)
+wsh_configure_executable(windows-runtime-tests)
 wsh_configure_executable(frontend-tests)
 
 set(WSH_TEST_TOOLCHAIN "TinyCC ${WSH_TINYCC_VERSION}")
@@ -373,4 +394,118 @@ set_tests_properties(
     PROPERTIES
         DEPENDS "${WSH_M4_CTEST_NAMES}"
         LABELS "M4;quality"
+)
+
+set(WSH_M5_TEST_IDS
+    0011
+    0012
+    0013
+    0015
+    0016
+    0018
+    0024
+    0039
+    0042
+    0043
+    0045
+    0047
+    0050
+    0051
+    0052
+    0070
+    0074
+    0075
+)
+
+add_test(
+    NAME m5-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m5"
+        -TestSpecificationsPath "docs/tests/m5"
+        -TestImplementationsPath "tests/m5"
+)
+set_tests_properties(m5-traceability PROPERTIES LABELS "M5;quality")
+
+add_test(
+    NAME m5-static-imports
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/test-m5-static-imports.ps1"
+        -Executable "$<TARGET_FILE:wsh>"
+)
+set_tests_properties(
+    m5-static-imports
+    PROPERTIES
+        DEPENDS m5-traceability
+        LABELS "M5;quality;security"
+)
+
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m5-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m5-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m5-source-quality
+        PROPERTIES
+            DEPENDS "m5-traceability;m5-static-imports"
+            LABELS "M5;quality"
+    )
+endif()
+
+set(WSH_M5_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M5_TEST_IDS)
+    set(test_name "m5-TC-${test_id}")
+    list(APPEND WSH_M5_CTEST_NAMES "${test_name}")
+    add_test(
+        NAME "${test_name}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File
+                "${CMAKE_CURRENT_SOURCE_DIR}/m5/run-tc-${test_id}-m5.ps1"
+            -TestCase "TC-${test_id}"
+            -Executable "$<TARGET_FILE:windows-runtime-tests>"
+            -Probe "$<TARGET_FILE:runtime-probe>"
+            -Wsh "$<TARGET_FILE:wsh>"
+            -EvidenceDirectory
+                "${CMAKE_BINARY_DIR}/test-evidence/m5/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
+    )
+    set_tests_properties(
+        "${test_name}"
+        PROPERTIES
+            DEPENDS m5-traceability
+            LABELS "M5;controlled"
+    )
+endforeach()
+
+add_test(
+    NAME m5-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory
+            "${CMAKE_BINARY_DIR}/test-evidence/m5/$<CONFIG>/current"
+        -ExpectedCount 18
+)
+set_tests_properties(
+    m5-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M5_CTEST_NAMES}"
+        LABELS "M5;quality"
 )

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0039}
+\def\TCTitle{Exact path and logical working directory}
+\def\TCPurpose{Verify path preservation required by WSH-REQ-0039.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0039}
+\def\TCDesignRef{M5 design: Environment and Directory}
+\def\TCFeatureRef{logical directory and exact external path arguments}
+\def\TCTestTechnique{Equivalence partitioning.}
+\def\TCPreconditions{A path-reporting child is built.}
+\def\TCEnvironment{Drive, relative, slash, and Unicode test paths.}
+\def\TCAssumptions{The process global directory can be observed separately.}
+\def\TCInputData{Native path spellings and two isolated runtimes.}
+\def\TCInitialState{Known logical and process-global directories.}
+\def\TCProcedure{Change one logical directory and launch path probes.}
+\def\TCExpectedResult{Child cwd changes explicitly; argument bytes do not.}
+\def\TCPostConditions{The host process directory is unchanged.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0047}
+\def\TCTitle{Explicit child environment block}
+\def\TCPurpose{Verify WSH-REQ-0046, WSH-REQ-0047, and WSH-REQ-0048.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0046, WSH-REQ-0047, WSH-REQ-0048}
+\def\TCDesignRef{M5 design: Environment and Directory}
+\def\TCFeatureRef{import, scalar/path adapter, collisions, sort, snapshot}
+\def\TCTestTechnique{Boundary, equivalence, and decision-table testing.}
+\def\TCPreconditions{An environment-reporting child is built.}
+\def\TCEnvironment{A controlled parent environment and isolated context.}
+\def\TCAssumptions{Windows names compare ordinal case-insensitively.}
+\def\TCInputData{Private, scalar, list, path, invalid, and colliding exports.}
+\def\TCInitialState{Imported values are recorded before modification.}
+\def\TCProcedure{Build blocks, inspect order, and round-trip through the child.}
+\def\TCExpectedResult{Only valid exported snapshots cross exactly.}
+\def\TCPostConditions{The process environment is unchanged.}
+\TCTemplate
+\end{document}
