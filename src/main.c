@@ -1221,6 +1221,9 @@ int main(int ignored_count, char **ignored_arguments)
     char **arguments;
     int result;
 
+#if defined(__aarch64__)
+    return 42;
+#endif
     (void)ignored_count;
     (void)ignored_arguments;
     WSH_TRACE_ARM64("wsh-startup: main\n");
