@@ -26,6 +26,7 @@ function Read-AsciiZ([int]$Offset) {
 if ((Read-U16 0) -ne 0x5a4d) { throw 'Artifact is not an MZ image.' }
 $pe = [int](Read-U32 0x3c)
 if ((Read-U32 $pe) -ne 0x00004550) { throw 'Artifact has no PE signature.' }
+$machine = Read-U16 ($pe + 4)
 $sectionCount = Read-U16 ($pe + 6)
 $optionalSize = Read-U16 ($pe + 20)
 $optional = $pe + 24
@@ -36,8 +37,17 @@ if (-not $is64 -and $magic -ne 0x10b) {
 }
 $majorOs = Read-U16 ($optional + 40)
 $minorOs = Read-U16 ($optional + 42)
-if ($majorOs -gt 5 -or ($majorOs -eq 5 -and $minorOs -gt 0)) {
-    throw "PE minimum OS version is $majorOs.$minorOs, not 5.0 or older."
+$maximumOs = switch ($machine) {
+    0x014c { [version]'5.0' }
+    0x8664 { [version]'5.0' }
+    0xaa64 { [version]'6.2' }
+    default { throw ('Unexpected PE machine type: 0x{0:x4}' -f $machine) }
+}
+$actualOs = [version]"$majorOs.$minorOs"
+if ($actualOs -gt $maximumOs) {
+    throw (
+        "PE minimum OS version is $actualOs, not $maximumOs or older " +
+        "for machine type 0x$($machine.ToString('x4')).")
 }
 $directory = $optional + $(if ($is64) { 112 } else { 96 })
 $importRva = Read-U32 ($directory + 8)
@@ -123,4 +133,5 @@ if ('CreateProcessW' -notin $symbols) {
 
 Write-Output (
     "M5 PE import gate passed: $($symbols.Count) kernel32 symbol(s), " +
-    "minimum OS $majorOs.$minorOs.")
+    "minimum OS $actualOs (maximum $maximumOs for machine " +
+    "type 0x$($machine.ToString('x4'))).")
