@@ -123,6 +123,9 @@ $forbidden = @(
     'SearchPathW',
     'ShellExecuteW',
     'WinExec')
+if ($machine -eq 0xaa64) {
+    $forbidden += 'InterlockedIncrement'
+}
 $present = @($symbols | Where-Object { $_ -in $forbidden })
 if ($present.Count -ne 0) {
     throw "Forbidden static imports: $($present -join ', ')"

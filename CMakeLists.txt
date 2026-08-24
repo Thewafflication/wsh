@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(wsh VERSION 1.3.2 LANGUAGES C)
+project(wsh VERSION 1.3.3 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)

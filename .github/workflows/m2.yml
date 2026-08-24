@@ -226,35 +226,13 @@ jobs:
             Tee-Object 'out/logs/${{ matrix.arch }}-debug-build.log'
           exit $LASTEXITCODE
 
-      - name: Capture ARM64 startup backtrace with GDB
+      - name: Validate native ARM64 kernel32 imports
         if: matrix.arch == 'arm64' && steps.build.outcome == 'success'
         shell: pwsh
         run: |
-          $gdb = (Get-Command gdb -ErrorAction Stop).Source
           $readobj = (Get-Command llvm-readobj -ErrorAction Stop).Source
-          & $gdb --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
           $executable = (Resolve-Path `
             '${{ matrix.build_directory }}/Debug/wsh.exe').Path
-          $gdbExecutable = $executable.Replace('\', '/')
-          @(
-            'set pagination off'
-            'set confirm off'
-            "file `"$gdbExecutable`""
-            'set args --version'
-            'run'
-            'info program'
-            'thread apply all bt full'
-            'info registers'
-            'x/32i $pc-32'
-            'quit'
-          ) | Set-Content out/logs/arm64-startup.gdb -Encoding ascii
-          & $gdb -q -batch `
-            -x out/logs/arm64-startup.gdb 2>&1 |
-            Tee-Object out/logs/arm64-startup-gdb.log
-          "GDB exit code: $LASTEXITCODE"
-
           $symbols = @(
             & $readobj --coff-imports $executable |
               Select-String '^\s+Symbol:' |
@@ -308,7 +286,7 @@ jobs:
           ./tools/Build-WpmPackage.ps1 `
             -Architecture '${{ matrix.arch }}' `
             -Configuration Debug `
-            -Version "1.3.2+$shortRevision" `
+            -Version "1.3.3+$shortRevision" `
             -BuildDirectory '${{ matrix.build_directory }}'
 
       - name: Collect Debug build and test evidence

@@ -309,7 +309,7 @@ static LONG wsh_windows_increment(volatile LONG *value)
     LONG desired;
     LONG actual;
 
-    observed = *value;
+    observed = InterlockedCompareExchange(value, 0, 0);
     do {
         desired = (LONG)((DWORD)observed + 1UL);
         actual = InterlockedCompareExchange(value, desired, observed);
