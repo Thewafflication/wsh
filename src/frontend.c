@@ -10,11 +10,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** Successful front-end completion. */
 #define WSH_EXIT_SUCCESS 0
+/** General evaluation failure. */
 #define WSH_EXIT_GENERAL 1
+/** Complete lexical or syntax failure. */
 #define WSH_EXIT_SYNTAX 3
+/** Input, output, or console failure. */
 #define WSH_EXIT_IO 5
+/** Invalid source encoding. */
 #define WSH_EXIT_ENCODING 6
+/** Fixed input or allocation limit exceeded. */
 #define WSH_EXIT_RESOURCE 9
 
 /** Mutable source bytes accumulated until the parser accepts one command. */
@@ -174,6 +180,14 @@ static int process_pending(
     status = io->evaluate == NULL ? WSH_EXIT_SUCCESS :
         io->evaluate(io->evaluation_data, tree);
     wsh_parse_tree_destroy(tree);
+    if (io->submitted != NULL &&
+        io->submitted(
+            io->evaluation_data,
+            pending->bytes,
+            pending->length,
+            status) != 0) {
+        return WSH_EXIT_IO;
+    }
     pending->length = 0U;
     if (pending->bytes != NULL) {
         pending->bytes[0] = 0;
@@ -245,6 +259,24 @@ int wsh_frontend_run(
             free(pending.bytes);
             return WSH_EXIT_RESOURCE;
         }
+        if (read_result == WSH_FRONTEND_READ_CANCELLED) {
+            pending.length = 0U;
+            if (pending.bytes != NULL) {
+                pending.bytes[0] = 0;
+            }
+            if (write_text(
+                    io->write_output,
+                    io->output_data,
+                    "^C\r\n") != 0 ||
+                (io->cancel != NULL &&
+                 io->cancel(io->evaluation_data) != 0)) {
+                free(pending.bytes);
+                return WSH_EXIT_IO;
+            }
+            status = 130;
+            incomplete = 0;
+            continue;
+        }
         if (read_result == WSH_FRONTEND_READ_EOF) {
             if (pending.length == 0U) {
                 free(pending.bytes);
@@ -283,6 +315,11 @@ int wsh_frontend_run(
         if (result != WSH_EXIT_SUCCESS) {
             free(pending.bytes);
             return result;
+        }
+        if (!incomplete && io->should_stop != NULL &&
+            io->should_stop(io->evaluation_data)) {
+            free(pending.bytes);
+            return status;
         }
     }
 }

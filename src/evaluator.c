@@ -98,7 +98,8 @@ typedef enum eval_signal {
     EVAL_SIGNAL_NONE = 0,
     EVAL_SIGNAL_BREAK,
     EVAL_SIGNAL_CONTINUE,
-    EVAL_SIGNAL_RETURN
+    EVAL_SIGNAL_RETURN,
+    EVAL_SIGNAL_EXIT
 } eval_signal;
 
 /** Persistent evaluator state. */
@@ -129,6 +130,12 @@ struct wsh_evaluator {
     eval_signal signal;
     /** Optional owned return status. */
     wsh_status_list *signal_status;
+    /** Nonzero after an accepted `exit` command. */
+    int exit_requested;
+    /** Nonzero when `exit --force` was requested. */
+    int exit_forced;
+    /** Reduced process status requested by `exit`. */
+    uint32_t exit_status;
     /** Current dynamic local scope. */
     eval_scope *scope;
     /** Owned persistent function table. */
@@ -1091,6 +1098,11 @@ static wsh_result eval_glob_words(
 static wsh_result eval_execute(
     wsh_evaluator *evaluator,
     const eval_node *node,
+    wsh_status_list **out_status);
+
+/** Reconstruct the current published status as an owned status list. */
+static wsh_result eval_current_status(
+    wsh_evaluator *evaluator,
     wsh_status_list **out_status);
 
 /** Test whether one output scalar occurs in the current `$ifs`. */
@@ -3605,6 +3617,49 @@ static wsh_result eval_builtin(
         return eval_status_clone(
             evaluator, evaluator->signal_status, out_status);
     }
+    if (eval_word_is(words, 0U, "exit")) {
+        size_t status_index;
+
+        evaluator->exit_forced = 0;
+        status_index = 1U;
+        if (words->count > 1U &&
+            eval_word_is(words, 1U, "--force")) {
+            evaluator->exit_forced = 1;
+            status_index = 2U;
+        }
+        if (words->count > status_index + 1U ||
+            (words->count == status_index + 1U &&
+             !eval_parse_status(
+                wsh_string_bytes(words->items[status_index].text),
+                &code))) {
+            return WSH_ERR_INVALID;
+        }
+        if (words->count == status_index + 1U) {
+            result = eval_status_one(evaluator, code, out_status);
+        } else {
+            result = eval_current_status(evaluator, out_status);
+            code = 0U;
+            if (result == WSH_OK) {
+                for (index = 0U;
+                     index < wsh_status_list_count(*out_status);
+                     ++index) {
+                    uint32_t item_code;
+
+                    if (wsh_status_list_at(
+                            *out_status, index, &item_code) == WSH_OK &&
+                        code == 0U && item_code != 0U) {
+                        code = item_code;
+                    }
+                }
+            }
+        }
+        if (result == WSH_OK) {
+            evaluator->exit_requested = 1;
+            evaluator->exit_status = code;
+            evaluator->signal = EVAL_SIGNAL_EXIT;
+        }
+        return result;
+    }
     if (eval_word_is(words, 0U, "shift")) {
         shift = 1U;
         if (words->count > 2U ||
@@ -4824,11 +4879,16 @@ wsh_result wsh_evaluate(
             result = restore_result;
         }
     }
-    if (result == WSH_OK && evaluator->signal != EVAL_SIGNAL_NONE) {
+    if (result == WSH_OK &&
+        evaluator->signal != EVAL_SIGNAL_NONE &&
+        evaluator->signal != EVAL_SIGNAL_EXIT) {
         eval_diagnostic(
             evaluator, WSH_DIAGNOSTIC_CONTROL,
             "control transfer escaped its legal dynamic context", root);
         result = WSH_ERR_INVALID;
+    }
+    if (evaluator->signal == EVAL_SIGNAL_EXIT) {
+        evaluator->signal = EVAL_SIGNAL_NONE;
     }
     if (result == WSH_OK) {
         (void)eval_publish_status(evaluator, *out_status);
@@ -4838,4 +4898,120 @@ wsh_result wsh_evaluate(
     }
     eval_node_destroy(evaluator, root);
     return result;
+}
+
+/** @brief Implements wsh_evaluator_function_count. */
+size_t wsh_evaluator_function_count(const wsh_evaluator *evaluator)
+{
+    return evaluator == NULL ? 0U : evaluator->function_count;
+}
+
+/** @brief Implements wsh_evaluator_function_at. */
+wsh_result wsh_evaluator_function_at(
+    const wsh_evaluator *evaluator,
+    size_t index,
+    wsh_string_view *out_name)
+{
+    if (evaluator == NULL || out_name == NULL ||
+        index >= evaluator->function_count) {
+        return WSH_ERR_INVALID;
+    }
+    *out_name = wsh_string_bytes(evaluator->functions[index].name);
+    return WSH_OK;
+}
+
+/** @brief Implements wsh_evaluator_invoke_signal. */
+wsh_result wsh_evaluator_invoke_signal(
+    wsh_evaluator *evaluator,
+    wsh_string_view name,
+    uint32_t default_status,
+    wsh_status_list **out_status)
+{
+    size_t index;
+    eval_words words;
+    wsh_result result;
+    wsh_result restore_result;
+    int pushed_scope;
+
+    if (evaluator == NULL || out_status == NULL || name.length == 0U) {
+        return WSH_ERR_INVALID;
+    }
+    *out_status = NULL;
+    result = eval_status_one(evaluator, default_status, out_status);
+    if (result == WSH_OK) {
+        result = eval_publish_status(evaluator, *out_status);
+    }
+    index = eval_find_function(evaluator, name);
+    if (result != WSH_OK || index == evaluator->function_count) {
+        return result;
+    }
+    wsh_status_list_destroy(*out_status);
+    *out_status = NULL;
+    evaluator->steps = 0U;
+    evaluator->depth = 0U;
+    evaluator->signal = EVAL_SIGNAL_NONE;
+    wsh_status_list_destroy(evaluator->signal_status);
+    evaluator->signal_status = NULL;
+    eval_words_init(evaluator, &words);
+    pushed_scope = 0;
+    result = eval_words_append(evaluator, &words, name, 0);
+    if (result == WSH_OK) {
+        result = eval_scope_push(evaluator);
+        if (result == WSH_OK) {
+            pushed_scope = 1;
+        }
+    }
+    if (result == WSH_OK) {
+        result = eval_call_function(
+            evaluator, NULL, index, &words, out_status);
+    }
+    if (pushed_scope) {
+        restore_result = eval_scope_pop(evaluator);
+        if (result == WSH_OK) {
+            result = restore_result;
+        }
+    }
+    eval_words_destroy(&words);
+    if (result == WSH_OK && evaluator->signal != EVAL_SIGNAL_NONE &&
+        evaluator->signal != EVAL_SIGNAL_EXIT) {
+        result = WSH_ERR_INVALID;
+    }
+    if (evaluator->signal == EVAL_SIGNAL_EXIT) {
+        evaluator->signal = EVAL_SIGNAL_NONE;
+    }
+    if (result == WSH_OK) {
+        result = eval_publish_status(evaluator, *out_status);
+    } else {
+        wsh_status_list_destroy(*out_status);
+        *out_status = NULL;
+    }
+    return result;
+}
+
+/** @brief Implements wsh_evaluator_exit_requested. */
+int wsh_evaluator_exit_requested(
+    const wsh_evaluator *evaluator,
+    uint32_t *out_status,
+    int *out_forced)
+{
+    if (evaluator == NULL || !evaluator->exit_requested) {
+        return 0;
+    }
+    if (out_status != NULL) {
+        *out_status = evaluator->exit_status;
+    }
+    if (out_forced != NULL) {
+        *out_forced = evaluator->exit_forced;
+    }
+    return 1;
+}
+
+/** @brief Implements wsh_evaluator_clear_exit. */
+void wsh_evaluator_clear_exit(wsh_evaluator *evaluator)
+{
+    if (evaluator != NULL) {
+        evaluator->exit_requested = 0;
+        evaluator->exit_forced = 0;
+        evaluator->exit_status = 0U;
+    }
 }

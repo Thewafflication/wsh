@@ -70,6 +70,29 @@ void wsh_windows_runtime_destroy(wsh_windows_runtime *runtime);
 int wsh_windows_runtime_has_open_test(
     const wsh_windows_runtime *runtime);
 
+/** Request status-130 cancellation of the active foreground group. */
+void wsh_windows_runtime_request_interrupt(
+    wsh_windows_runtime *runtime);
+
+/** Return the number of retained background groups. */
+size_t wsh_windows_runtime_background_count(
+    const wsh_windows_runtime *runtime);
+
+/** Borrow one retained background group's root process identifier. */
+wsh_result wsh_windows_runtime_background_at(
+    const wsh_windows_runtime *runtime,
+    size_t index,
+    uint32_t *out_identifier);
+
+/** Cancel and collect every retained background group. */
+wsh_result wsh_windows_runtime_cancel_all(
+    wsh_windows_runtime *runtime);
+
+/** Return an owned UTF-8 copy of the logical working directory. */
+wsh_result wsh_windows_runtime_working_directory(
+    const wsh_windows_runtime *runtime,
+    wsh_string **out_path);
+
 /** Return the abstract-runtime callbacks implemented by runtime. */
 wsh_runtime wsh_windows_runtime_interface(wsh_windows_runtime *runtime);
 

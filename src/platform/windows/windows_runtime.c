@@ -291,6 +291,8 @@ struct wsh_windows_runtime {
     size_t group_count;
     /** Allocated group slots. */
     size_t group_capacity;
+    /** Atomic foreground cancellation request from a console handler. */
+    volatile LONG interrupt_requested;
     /** Instance nonce used only to correlate a nested envelope pair. */
     uint64_t nonce;
     /** Monotonic local named-pipe sequence. */
@@ -1196,6 +1198,70 @@ int wsh_windows_runtime_has_open_test(
     const wsh_windows_runtime *runtime)
 {
     return runtime != NULL && runtime->test_active;
+}
+
+/** @brief Implements wsh_windows_runtime_request_interrupt. */
+void wsh_windows_runtime_request_interrupt(
+    wsh_windows_runtime *runtime)
+{
+    if (runtime != NULL) {
+        (void)InterlockedExchange(&runtime->interrupt_requested, 1);
+    }
+}
+
+/** @brief Implements wsh_windows_runtime_background_count. */
+size_t wsh_windows_runtime_background_count(
+    const wsh_windows_runtime *runtime)
+{
+    return runtime == NULL ? 0U : runtime->group_count;
+}
+
+/** @brief Implements wsh_windows_runtime_background_at. */
+wsh_result wsh_windows_runtime_background_at(
+    const wsh_windows_runtime *runtime,
+    size_t index,
+    uint32_t *out_identifier)
+{
+    if (runtime == NULL || out_identifier == NULL ||
+        index >= runtime->group_count) {
+        return WSH_ERR_INVALID;
+    }
+    *out_identifier = (uint32_t)runtime->groups[index]->root_identifier;
+    return WSH_OK;
+}
+
+/** @brief Implements wsh_windows_runtime_working_directory. */
+wsh_result wsh_windows_runtime_working_directory(
+    const wsh_windows_runtime *runtime,
+    wsh_string **out_path)
+{
+    char *bytes;
+    size_t length;
+    wsh_string_view view;
+    wsh_result result;
+
+    if (runtime == NULL || out_path == NULL) {
+        return WSH_ERR_INVALID;
+    }
+    *out_path = NULL;
+    bytes = NULL;
+    result = wsh_windows_from_wide(
+        runtime,
+        runtime->working_directory,
+        runtime->working_directory_length,
+        &bytes,
+        &length);
+    view.data = bytes;
+    view.length = length;
+    if (result == WSH_OK) {
+        result = wsh_string_create(
+            &runtime->options.allocator,
+            &runtime->options.limits,
+            view,
+            out_path);
+    }
+    wsh_windows_release(runtime, bytes);
+    return result;
 }
 
 /** @brief Implements wsh_windows_runtime_get_capabilities. */
@@ -3864,6 +3930,7 @@ static wsh_result wsh_windows_wait_group(
     DWORD elapsed;
     DWORD remaining;
     DWORD wait_result;
+    DWORD wait_slice;
     DWORD code;
     size_t index;
     wsh_result result;
@@ -3877,15 +3944,36 @@ static wsh_result wsh_windows_wait_group(
             elapsed = now - start;
             remaining = elapsed >= timeout ? 0U : timeout - elapsed;
         }
-        wait_result = WaitForSingleObject(
-            group->processes[index], remaining);
-        if (wait_result == WAIT_TIMEOUT) {
-            wsh_windows_group_force(
-                runtime, group, WSH_WINDOWS_TIMEOUT_STATUS);
-            break;
+        for (;;) {
+            wait_slice = remaining == INFINITE || remaining > 50U ?
+                50U : remaining;
+            wait_result = WaitForSingleObject(
+                group->processes[index], wait_slice);
+            if (wait_result == WAIT_OBJECT_0) {
+                break;
+            }
+            if (wait_result != WAIT_TIMEOUT) {
+                result = WSH_ERR_INTERNAL;
+                break;
+            }
+            if (InterlockedExchange(
+                    &runtime->interrupt_requested, 0) != 0) {
+                wsh_windows_group_force(
+                    runtime, group, WSH_WINDOWS_CANCEL_STATUS);
+                break;
+            }
+            if (timeout != 0U) {
+                now = GetTickCount();
+                elapsed = now - start;
+                if (elapsed >= timeout) {
+                    wsh_windows_group_force(
+                        runtime, group, WSH_WINDOWS_TIMEOUT_STATUS);
+                    break;
+                }
+                remaining = timeout - elapsed;
+            }
         }
-        if (wait_result != WAIT_OBJECT_0) {
-            result = WSH_ERR_INTERNAL;
+        if (result != WSH_OK || group->cancelled) {
             break;
         }
     }
@@ -3952,6 +4040,9 @@ static wsh_result wsh_windows_launch_plan(
          (plan->flags & (WSH_RUNTIME_LAUNCH_CAPTURE |
           WSH_RUNTIME_LAUNCH_CAPTURE_STDERR)) != 0U)) {
         return WSH_ERR_INVALID;
+    }
+    if ((plan->flags & WSH_RUNTIME_LAUNCH_BACKGROUND) == 0U) {
+        (void)InterlockedExchange(&runtime->interrupt_requested, 0);
     }
     if (!wsh_windows_multiply(
             plan->command_count, sizeof(*stages), &stage_bytes)) {
@@ -4706,6 +4797,28 @@ static wsh_result wsh_windows_cancel_background(
         wsh_windows_collect_substitutions(runtime, 1);
         result = wsh_windows_append_status(status, WSH_WINDOWS_CANCEL_STATUS);
     }
+    return result;
+}
+
+/** @brief Implements wsh_windows_runtime_cancel_all. */
+wsh_result wsh_windows_runtime_cancel_all(
+    wsh_windows_runtime *runtime)
+{
+    wsh_status_builder *status;
+    wsh_result result;
+
+    if (runtime == NULL) {
+        return WSH_ERR_INVALID;
+    }
+    status = NULL;
+    result = wsh_status_builder_create(
+        &runtime->options.allocator,
+        &runtime->options.limits,
+        &status);
+    if (result == WSH_OK) {
+        result = wsh_windows_cancel_background(runtime, NULL, status);
+    }
+    wsh_status_builder_destroy(status);
     return result;
 }
 

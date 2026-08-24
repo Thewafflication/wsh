@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0020}
+\def\TCTitle{Interactive foreground interruption and cleanup}
+\def\TCPurpose{Verify a real console control event cancels and collects the foreground child tree before returning to the prompt.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0020, WSH-REQ-0024, WSH-REQ-0050, WSH-REQ-0056}
+\def\TCDesignRef{ADR-0010 and WSH-SPEC-INTERACTIVE-0001 sections 6--7}
+\def\TCFeatureRef{Ctrl+C, Ctrl+Break, foreground groups, sigint, prompt recovery}
+\def\TCTestTechnique{State-transition and native console integration testing.}
+\def\TCPreconditions{The native console driver and runtime probe are built.}
+\def\TCEnvironment{Native current Windows; legacy representatives remain a release matrix gate.}
+\def\TCAssumptions{The operating system delivers console control events to the shared process group.}
+\def\TCInputData{Long-running foreground child, pipeline, Ctrl+C, and Ctrl+Break.}
+\def\TCInitialState{No tracked foreground or background child exists.}
+\def\TCProcedure{Launch WSH on a genuine console, start work, deliver each control event, and inspect status, prompt recovery, handler order, and process liveness.}
+\def\TCExpectedResult{Every live stage receives status 130, no child remains, sigint runs after cleanup, and a fresh prompt accepts input.}
+\def\TCPostConditions{The console mode, handler, and all child handles are restored or released.}
+\TCTemplate
+\end{document}

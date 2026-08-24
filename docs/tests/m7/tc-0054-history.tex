@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0054}
+\def\TCTitle{Bounded inert interactive history}
+\def\TCPurpose{Verify JSONL format, multiline/Unicode fidelity, limits, corruption recovery, adjacent deduplication, locking, suppression, and atomic replacement.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0037, WSH-REQ-0054, WSH-REQ-0074, WSH-REQ-0075}
+\def\TCDesignRef{ADR-0010, WSH-SPEC-INTERACTIVE-0001 section 5, and WSH-SPEC-STDLIB-0001 section 10}
+\def\TCFeatureRef{history load, list, suppress, clear, lock, replace, corruption, limits}
+\def\TCTestTechnique{State-transition, syntax, boundary, and concurrency testing.}
+\def\TCPreconditions{An isolated per-test application-data directory exists.}
+\def\TCEnvironment{Every native supported architecture.}
+\def\TCAssumptions{Same-user legacy filesystem observation is an accepted residual risk.}
+\def\TCInputData{Valid, malformed, oversized, duplicate, multiline, escaped, and supplementary JSONL records.}
+\def\TCInitialState{History is absent or contains the selected controlled corpus.}
+\def\TCProcedure{Load, navigate, suppress, clear, contend, persist, reload, and inspect exact bytes without evaluating loaded text.}
+\def\TCExpectedResult{Only valid bounded inert commands load; ordering and values are exact; contention preserves the prior file; replacement is complete.}
+\def\TCPostConditions{The mutex is released and the isolated data root is removed.}
+\TCTemplate
+\end{document}

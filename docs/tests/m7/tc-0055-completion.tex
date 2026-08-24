@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0055}
+\def\TCTitle{Deterministic inert completion}
+\def\TCPurpose{Verify syntax-position providers, ordinal order, longest prefix, forward/reverse cycling, safe quoting, path style, and network refusal.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0055, WSH-REQ-0075}
+\def\TCDesignRef{ADR-0010 and WSH-SPEC-INTERACTIVE-0001 section 4}
+\def\TCFeatureRef{command, variable, path, quoting, ordering, UNC boundary}
+\def\TCTestTechnique{Classification-tree, decision-table, and security-negative testing.}
+\def\TCPreconditions{Controlled functions, variables, executable files, scripts, and filesystem names exist.}
+\def\TCEnvironment{Deterministic isolated directory and path list.}
+\def\TCAssumptions{Version 1.0 has no executable completion hook.}
+\def\TCInputData{Ambiguous prefixes, syntax characters, apostrophes, slash styles, options, and UNC-like prefixes.}
+\def\TCInitialState{No completion candidate has been selected.}
+\def\TCProcedure{Complete each position forward and backward, inspect inserted source, and monitor forbidden provider effects.}
+\def\TCExpectedResult{Candidates are stable, quoted source evaluates to the literal spelling, and no code or unselected network location is inspected.}
+\def\TCPostConditions{The pending buffer and controlled filesystem are cleared.}
+\TCTemplate
+\end{document}

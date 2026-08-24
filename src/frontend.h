@@ -22,7 +22,9 @@ typedef enum wsh_frontend_read_result {
     /** Input could not be represented as strict UTF-8. */
     WSH_FRONTEND_READ_ENCODING = 3,
     /** The input source exceeded its resource ceiling. */
-    WSH_FRONTEND_READ_RESOURCE = 4
+    WSH_FRONTEND_READ_RESOURCE = 4,
+    /** Interactive pending input was cancelled without submission. */
+    WSH_FRONTEND_READ_CANCELLED = 5
 } wsh_frontend_read_result;
 
 /** Read one logical line, retaining returned bytes until the next read. */
@@ -42,6 +44,19 @@ typedef int (*wsh_frontend_evaluate_fn)(
     void *user_data,
     const wsh_parse_tree *tree);
 
+/** Publish one interactive pending-input cancellation. */
+typedef int (*wsh_frontend_cancel_fn)(void *user_data);
+
+/** Observe one completely parsed and evaluated source submission. */
+typedef int (*wsh_frontend_submitted_fn)(
+    void *user_data,
+    const unsigned char *bytes,
+    size_t length,
+    int status);
+
+/** Return nonzero when the session should stop after a submission. */
+typedef int (*wsh_frontend_stop_fn)(void *user_data);
+
 /** Injected input, output, and evaluation operations for one session. */
 typedef struct wsh_frontend_io {
     /** Opaque state supplied to read_line. */
@@ -60,6 +75,12 @@ typedef struct wsh_frontend_io {
     void *evaluation_data;
     /** Optional evaluator; null accepts complete input without effects. */
     wsh_frontend_evaluate_fn evaluate;
+    /** Optional interactive cancellation observer. */
+    wsh_frontend_cancel_fn cancel;
+    /** Optional successful-parse submission observer. */
+    wsh_frontend_submitted_fn submitted;
+    /** Optional post-submission session stop predicate. */
+    wsh_frontend_stop_fn should_stop;
 } wsh_frontend_io;
 
 /** Session behavior selected after command-line mode detection. */

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0053}
+\def\TCTitle{Native Unicode console editor and startup}
+\def\TCPurpose{Verify mode detection, startup/profile order, literal wide prompts, multiline input, every editing key, Unicode scalars, resize/redraw, EOF, and basic fallback.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0024, WSH-REQ-0032, WSH-REQ-0033, WSH-REQ-0035, WSH-REQ-0037, WSH-REQ-0053}
+\def\TCDesignRef{ADR-0010 and WSH-SPEC-INTERACTIVE-0001 sections 1--3 and 8}
+\def\TCFeatureRef{console modes, profiles, prompts, editor, multiline, resize, fallback, EOF}
+\def\TCTestTechnique{State-transition, equivalence-partition, boundary, and native interface testing.}
+\def\TCPreconditions{WSH and the native console driver are built.}
+\def\TCEnvironment{Native x86/x64 Windows console without a VT requirement.}
+\def\TCAssumptions{Combining marks remain scalar-edit units in version 1.0.}
+\def\TCInputData{All documented key chords, CR/LF transitions, BMP and supplementary text, resize and fallback controls.}
+\def\TCInitialState{Caller console modes and an isolated profile root are recorded.}
+\def\TCProcedure{Drive key records through each editor transition, submit observable commands, and compare the restored mode and resulting output.}
+\def\TCExpectedResult{The exact edited Unicode source executes once, prompts remain literal, modes restore, and fallback preserves parser semantics.}
+\def\TCPostConditions{Temporary profiles and console state are removed or restored.}
+\TCTemplate
+\end{document}

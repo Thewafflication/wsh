@@ -250,16 +250,17 @@ A release candidate is acceptable only when:
 
 ## Immediate Next Work
 
-1. Use the completed M5 runtime as the effect boundary for M6 standard-library
-   process and filesystem commands.
-2. Implement the M6 filesystem, path, text, process, time, system, and test
-   namespaces without duplicating Windows launch or ownership policy.
+1. Use the completed M7 executable-owned interactive boundary as an input to
+   the scheduled M8 roadmap recalibration and public embedding work.
+2. Implement the M8 static/shared host surface without leaking console,
+   profile, history, completion, signal-handler, or process-global state into
+   embedding contexts.
 3. Retain the M0/M1 retrospective logs and M2 evidence. Close the historical
    M1 dependency, x86-oldest-host, PE/import, DWARF, and release-PDF evidence
    gaps before a later release claim depends on them.
-4. Migrate representative build/test orchestration to `.wsh` while preserving
-   the bootstrap PowerShell path and M5's structured arguments, containment,
-   status ordering, timeout, cancellation, and no-effect failure rules.
+4. Carry native Windows 2000, native ARM64, hostile-host, and final packaging
+   claims into the M9 release matrix rather than inferring them from the local
+   M7 console evidence.
 
 ## References
 

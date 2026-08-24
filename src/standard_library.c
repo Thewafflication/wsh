@@ -12,7 +12,7 @@
 #define LIBRARY_COMMAND(command, usage, description, command_flags) \
     {command, usage, description, command_flags}
 
-/** Accepted M6 commands in canonical deterministic order. */
+/** Accepted embedded commands in canonical deterministic order. */
 static const wsh_library_descriptor wsh_library_commands[] = {
     LIBRARY_COMMAND("fs::compare", "fs::compare [--text encoding] left right",
         "compare two files", 0U),
@@ -101,6 +101,13 @@ static const wsh_library_descriptor wsh_library_commands[] = {
         "return observed Windows version fields", WSH_LIBRARY_REQUIRES_INTO),
     LIBRARY_COMMAND("system::wsh-version", "system::wsh-version --into name",
         "return product and ABI versions", WSH_LIBRARY_REQUIRES_INTO),
+    LIBRARY_COMMAND("history::suppress", "history::suppress",
+        "suppress the current history entry", 0U),
+    LIBRARY_COMMAND("history::list",
+        "history::list [--into name] [count]",
+        "return newest inert history entries", WSH_LIBRARY_ACCEPTS_INTO),
+    LIBRARY_COMMAND("history::clear", "history::clear",
+        "clear and persist interactive history", 0U),
     LIBRARY_COMMAND("test::assert", "test::assert [message]",
         "assert successful current status", 0U),
     LIBRARY_COMMAND("test::assert-equal",

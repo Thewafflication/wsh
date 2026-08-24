@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0057}
+\def\TCTitle{Interactive error recovery and batch equivalence}
+\def\TCPurpose{Verify recoverable syntax, expansion, redirection, resolution, and launch errors discard only one command and retain batch language meaning.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0032, WSH-REQ-0057}
+\def\TCDesignRef{ADR-0010, WSH-SPEC-INTERACTIVE-0001 section 7, and WSH-SPEC-LANGUAGE-0001 section 17}
+\def\TCFeatureRef{diagnostics, status, command isolation, prompt recovery, fatal output}
+\def\TCTestTechnique{Error guessing, state-transition, and mode-comparison testing.}
+\def\TCPreconditions{Interactive and redirected sessions use the same tested executable.}
+\def\TCEnvironment{Native console plus redirected batch input.}
+\def\TCAssumptions{Console output failure is intentionally fatal.}
+\def\TCInputData{One case from every recoverable error class followed by a state-observing valid command.}
+\def\TCInitialState{A marker variable has a known value.}
+\def\TCProcedure{Submit each failure then a valid command, and compare valid-command meaning with batch execution.}
+\def\TCExpectedResult{Each diagnostic is visible, no partial effect occurs, the next prompt accepts input, and valid results match batch mode.}
+\def\TCPostConditions{No pending source remains.}
+\TCTemplate
+\end{document}

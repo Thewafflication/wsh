@@ -16,6 +16,8 @@ target_link_libraries(parser-tests PRIVATE wsh_core)
 
 add_executable(evaluator-tests evaluator_tests.c)
 add_executable(runtime-probe helpers/runtime_probe.c)
+add_executable(console-driver helpers/console_driver.c)
+target_link_libraries(console-driver PRIVATE WCRT::WCRT)
 add_executable(windows-runtime-tests windows_runtime_tests.c)
 target_include_directories(
     evaluator-tests
@@ -57,6 +59,7 @@ wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
 wsh_configure_executable(evaluator-tests)
 wsh_configure_executable(runtime-probe)
+wsh_configure_executable(console-driver)
 wsh_configure_executable(windows-runtime-tests)
 wsh_configure_executable(frontend-tests)
 
@@ -633,4 +636,112 @@ set_tests_properties(
     PROPERTIES
         DEPENDS "${WSH_M6_CTEST_NAMES}"
         LABELS "M6;quality"
+)
+
+set(WSH_M7_TEST_IDS
+    0020
+    0053
+    0054
+    0055
+    0056
+    0057
+    0074
+    0075
+)
+
+add_test(
+    NAME m7-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m7"
+        -TestSpecificationsPath "docs/tests/m7"
+        -TestImplementationsPath "tests/m7"
+)
+set_tests_properties(m7-traceability PROPERTIES LABELS "M7;quality")
+set(WSH_M7_QUALITY_DEPENDS m7-traceability)
+
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m7-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m7-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m7-source-quality
+        PROPERTIES
+            DEPENDS m7-traceability
+            LABELS "M7;quality"
+    )
+    list(APPEND WSH_M7_QUALITY_DEPENDS m7-source-quality)
+endif()
+
+set(WSH_M7_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M7_TEST_IDS)
+    if(test_id STREQUAL "0020" OR test_id STREQUAL "0056")
+        set(test_scenario "control")
+    elseif(test_id STREQUAL "0053")
+        set(test_scenario "editor")
+    elseif(test_id STREQUAL "0054")
+        set(test_scenario "history")
+    elseif(test_id STREQUAL "0055")
+        set(test_scenario "completion")
+    elseif(test_id STREQUAL "0057")
+        set(test_scenario "recovery")
+    elseif(test_id STREQUAL "0074")
+        set(test_scenario "limits")
+    else()
+        set(test_scenario "security")
+    endif()
+    set(test_name "m7-TC-${test_id}")
+    list(APPEND WSH_M7_CTEST_NAMES "${test_name}")
+    add_test(
+        NAME "${test_name}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File
+                "${CMAKE_CURRENT_SOURCE_DIR}/m7/run-tc-${test_id}-m7.ps1"
+            -TestCase "TC-${test_id}"
+            -Driver "$<TARGET_FILE:console-driver>"
+            -Wsh "$<TARGET_FILE:wsh>"
+            -Probe "$<TARGET_FILE:runtime-probe>"
+            -Scenario "${test_scenario}"
+            -EvidenceDirectory
+                "${CMAKE_BINARY_DIR}/test-evidence/m7/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
+    )
+    set_tests_properties(
+        "${test_name}"
+        PROPERTIES
+            DEPENDS "${WSH_M7_QUALITY_DEPENDS}"
+            LABELS "M7;controlled;interactive;native-console"
+            TIMEOUT 180
+    )
+endforeach()
+
+add_test(
+    NAME m7-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory
+            "${CMAKE_BINARY_DIR}/test-evidence/m7/$<CONFIG>/current"
+        -ExpectedCount 8
+)
+set_tests_properties(
+    m7-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M7_CTEST_NAMES}"
+        LABELS "M7;quality"
 )

@@ -20,7 +20,8 @@ case TC-0037;
 case TC-0065;
     test::begin TC-0065 'embedded namespace conformance';
     library::list --into names;
-    test::assert-equal 56 $#names;
+    # M7 extends the shared registry with three interactive history commands.
+    test::assert-equal 59 $#names;
     for (name in $names) {
         library::describe $name;
         test::assert;

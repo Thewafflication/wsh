@@ -59,6 +59,38 @@ wsh_result wsh_evaluate(
     const wsh_parse_tree *tree,
     wsh_status_list **out_status);
 
+/** Return the number of persistent functions in definition order. */
+size_t wsh_evaluator_function_count(const wsh_evaluator *evaluator);
+
+/** Borrow one persistent function name by zero-based index. */
+wsh_result wsh_evaluator_function_at(
+    const wsh_evaluator *evaluator,
+    size_t index,
+    wsh_string_view *out_name);
+
+/**
+ * Publish a default status and invoke one signal function when defined.
+ * @param evaluator Evaluator owner.
+ * @param name Exact function name such as `sigint` or `sigexit`.
+ * @param default_status Status published before optional invocation.
+ * @param out_status Receives the owned final status.
+ * @return WSH_OK or an evaluation/resource error.
+ */
+wsh_result wsh_evaluator_invoke_signal(
+    wsh_evaluator *evaluator,
+    wsh_string_view name,
+    uint32_t default_status,
+    wsh_status_list **out_status);
+
+/** Return nonzero after the evaluator accepted an `exit` built-in. */
+int wsh_evaluator_exit_requested(
+    const wsh_evaluator *evaluator,
+    uint32_t *out_status,
+    int *out_forced);
+
+/** Clear a refused interactive exit request. */
+void wsh_evaluator_clear_exit(wsh_evaluator *evaluator);
+
 /** Return whether the `~` matcher accepts text for pattern. */
 int wsh_pattern_matches(
     wsh_string_view pattern,

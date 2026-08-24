@@ -12,8 +12,8 @@ variables, consoles, and handles.
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
 M1 repository skeleton, M2 portable core, M3 lexer/parser, M4 language
-evaluator, M5 Windows execution runtime, and M6 embedded standard library are
-implemented.
+evaluator, M5 Windows execution runtime, M6 embedded standard library, and M7
+native interactive shell are implemented.
 
 ## Install
 
@@ -46,13 +46,19 @@ by `SHA256SUMS` on the [latest release].
 
 Run `wsh.exe` with no source operand to read standard input. When standard
 input is a Windows console, WSH displays `% `, uses `; ` while a command is
-syntactically incomplete, and returns to the primary prompt after a complete
-command or a recoverable syntax error. Press Ctrl+Z and then Enter at an empty
-prompt to leave the session.
+syntactically incomplete, and provides scalar-safe native editing, history,
+completion, redraw, Ctrl+C cancellation, and recoverable errors without
+requiring VT support or Windows Terminal. Press Ctrl+Z and then Enter at an
+empty prompt to leave the session.
 
 Use `--interactive` (`-i`) to require console input or `--non-interactive`
 (`-I`) to suppress interactive behavior. Redirected standard input is selected
-as batch input automatically and never receives prompts.
+as batch input automatically and never receives prompts. Interactive startup
+loads the user profile by default; `--login` loads machine then user profiles,
+repeatable `--profile` operands run afterward, and `--no-profile` disables all
+profile execution. History is bounded inert JSON Lines under the user
+application-data directory; `history::suppress`, `history::list`, and
+`history::clear` provide explicit session controls.
 
 The front end evaluates each complete immutable parse tree. Variables, lists,
 expansion, functions, structured control flow, `source`, `eval`, status,

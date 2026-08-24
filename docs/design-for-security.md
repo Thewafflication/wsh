@@ -235,6 +235,27 @@ and incomplete-evidence failures.
 Every accepted threat traces to a `WSH-REQ` requirement and one or more test,
 analysis, inspection, or review artifacts under the WSP process.
 
+### 9.1 M7 Interactive Control Record
+
+M7 treats console records, prompt values, completion prefixes, history bytes,
+profiles, control events, and job-exit responses as untrusted inputs. Editing
+uses finite UTF-16 storage and scalar boundaries. Completion is inert,
+deterministically ordered, safely quoted, and refuses network enumeration
+until an explicit UNC prefix selects it.
+
+History is optional inert UTF-8 JSONL. Loading and serialization are bounded;
+malformed records are skipped with one warning, never evaluated, and updates
+use a path-specific cross-process lock plus flushed same-directory atomic
+replacement. `history::suppress` is explicit because WSH cannot reliably
+identify secrets in commands. Legacy filesystems still permit same-user
+observation and remain a documented residual risk.
+
+Console handlers perform only an atomic cancellation request. The runtime
+collects the complete foreground group before `sigint` executes. Interactive
+exit confirms live background work or requires explicit force, and repeated
+EOF has a defined cancel-and-collect transition. `TC-0020`, `TC-0053` through
+`TC-0057`, `TC-0074`, and `TC-0075` cover these controls.
+
 ## 10. Residual-Risk Decisions Required Before 1.0
 
 - continued traditional current-directory command search by default;

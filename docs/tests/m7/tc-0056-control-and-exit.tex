@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0056}
+\def\TCTitle{Pending cancellation and background exit policy}
+\def\TCPurpose{Verify Ctrl+C pending-input status, sigint behavior, live-job confirmation, force exit, and consecutive EOF cleanup.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0020, WSH-REQ-0050, WSH-REQ-0056, WSH-REQ-0075}
+\def\TCDesignRef{ADR-0010 and WSH-SPEC-INTERACTIVE-0001 section 6}
+\def\TCFeatureRef{pending Ctrl+C, sigint, background jobs, exit force, EOF}
+\def\TCTestTechnique{State-transition and decision-table testing.}
+\def\TCPreconditions{The native console driver can observe child liveness and prompts.}
+\def\TCEnvironment{Native Windows console.}
+\def\TCAssumptions{Batch mode never performs an interactive confirmation.}
+\def\TCInputData{Pending source, one live background child, yes/no response, force exit, and two EOF submissions.}
+\def\TCInitialState{The shell has a sigint function and no initial child.}
+\def\TCProcedure{Cancel pending input, start a child, exercise every exit/EOF decision, and inspect status, handler effects, and child liveness.}
+\def\TCExpectedResult{Pending input never executes, status is 130, refusals retain the job, accepted/forced exits collect it, and sigexit runs once.}
+\def\TCPostConditions{No child or console handler remains.}
+\TCTemplate
+\end{document}

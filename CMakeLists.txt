@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(wsh VERSION 1.4.0 LANGUAGES C)
+project(wsh VERSION 1.5.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -140,6 +140,7 @@ target_compile_definitions(wsh_shared PRIVATE
 
 add_executable(wsh
     src/frontend.c
+    src/interactive.c
     src/main.c
 )
 

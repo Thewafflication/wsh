@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0074}
+\def\TCTitle{Interactive resource limits and recovery}
+\def\TCPurpose{Verify pending input, history bytes/entries/records, completion candidates, and diagnostic bounds fail before uncontrolled growth and permit recovery.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0054, WSH-REQ-0074}
+\def\TCDesignRef{ADR-0010 and WSH-SPEC-INTERACTIVE-0001 sections 2, 4, 5, and 7}
+\def\TCFeatureRef{input, history, completion, diagnostics, recovery limits}
+\def\TCTestTechnique{Boundary-value and recovery testing.}
+\def\TCPreconditions{Limits are set to controlled finite values or exercised at compiled boundaries.}
+\def\TCEnvironment{Every supported build architecture.}
+\def\TCAssumptions{Authorized external programs remain outside shell memory ceilings.}
+\def\TCInputData{At-limit and over-limit source, JSONL, entry count, candidate count, and malformed records.}
+\def\TCInitialState{The session owns no pending input and a valid small history.}
+\def\TCProcedure{Exercise each boundary, observe rejection, then submit and persist a valid small command.}
+\def\TCExpectedResult{No partial state is published at the boundary and the valid retry succeeds.}
+\def\TCPostConditions{All temporary buffers, files, and locks are released.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0075}
+\def\TCTitle{Interactive hostile-input and DFS controls}
+\def\TCPurpose{Verify history remains inert, completion performs no code execution or implicit network access, handlers remain bounded, and cleanup survives hostile transitions.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0024, WSH-REQ-0055, WSH-REQ-0075}
+\def\TCDesignRef{WSH-DFS-0001 section 9.1 and ADR-0010}
+\def\TCFeatureRef{history injection, network completion, control storms, cleanup}
+\def\TCTestTechnique{Abuse-case, malformed-input, and fault-recovery testing.}
+\def\TCPreconditions{Sentinels can detect executed text, network enumeration attempts, and live child processes.}
+\def\TCEnvironment{Native Windows console and isolated history/filesystem roots.}
+\def\TCAssumptions{Same-authority denial of service cannot be fully prevented.}
+\def\TCInputData{Executable-looking JSON, hostile quoting, UNC prefixes, repeated control/resize records, and abrupt history failures.}
+\def\TCInitialState{Sentinels are absent and console modes are recorded.}
+\def\TCProcedure{Load and complete hostile corpora, deliver event sequences, then inspect sentinels, modes, handles, files, and child liveness.}
+\def\TCExpectedResult{No inert data executes, no unselected network path is touched, bounds hold, and all owned resources recover.}
+\def\TCPostConditions{The isolated test root is removed and caller console state is restored.}
+\TCTemplate
+\end{document}

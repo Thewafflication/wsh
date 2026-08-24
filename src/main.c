@@ -5,6 +5,7 @@
  */
 
 #include "frontend.h"
+#include "interactive.h"
 #include "wsh/core.h"
 #include "wsh/evaluator.h"
 #include "wsh/windows_runtime.h"
@@ -15,9 +16,26 @@
 #include <string.h>
 #include <windows.h>
 
+/** Stable command-line usage failure status. */
 #define WSH_EXIT_USAGE 2
+/** Stable command-line input/output failure status. */
 #define WSH_EXIT_IO 5
+/** Maximum batch source or executable profile bytes. */
 #define WSH_INPUT_LIMIT (16U * 1024U * 1024U)
+/** Maximum repeatable explicit profile operands. */
+#define WSH_MAX_PROFILES 64U
+
+/** Selected executable-profile startup behavior. */
+typedef struct wsh_startup_options {
+    /** Nonzero loads the machine then user profile. */
+    int login;
+    /** Nonzero disables every normal and explicit profile. */
+    int no_profile;
+    /** Borrowed explicit profile paths in command-line order. */
+    const char *profiles[WSH_MAX_PROFILES];
+    /** Number of explicit profile paths. */
+    size_t profile_count;
+} wsh_startup_options;
 
 /** Dynamically retained bytes for a redirected logical input line. */
 typedef struct wsh_file_reader {
@@ -89,7 +107,35 @@ typedef struct wsh_main_evaluation {
     wsh_stream_writer *error;
     /** First diagnostic not yet displayed. */
     size_t next_diagnostic;
+    /** Optional borrowed executable-owned interactive session. */
+    wsh_interactive_session *interactive;
 } wsh_main_evaluation;
+
+/** Runtime receiving an asynchronous console-control cancellation request. */
+static wsh_windows_runtime *wsh_control_runtime = NULL;
+
+/** Nonzero after a foreground console control event was observed. */
+static volatile LONG wsh_control_observed = 0;
+
+/** Legacy SHGetFolderPathW signature resolved from shell32. */
+typedef HRESULT (WINAPI *wsh_get_folder_path_fn)(
+    HWND,
+    int,
+    HANDLE,
+    DWORD,
+    LPWSTR);
+
+/** Request bounded foreground cleanup from a Windows console handler. */
+static BOOL WINAPI handle_console_control(DWORD control)
+{
+    if ((control == CTRL_C_EVENT || control == CTRL_BREAK_EVENT) &&
+        wsh_control_runtime != NULL) {
+        (void)InterlockedExchange(&wsh_control_observed, 1);
+        wsh_windows_runtime_request_interrupt(wsh_control_runtime);
+        return TRUE;
+    }
+    return FALSE;
+}
 
 /** Print concise command usage to the selected stream. */
 static void usage(FILE *stream, const char *program_name)
@@ -104,7 +150,10 @@ static void usage(FILE *stream, const char *program_name)
         "With no source operand, read standard input. A console input uses\n"
         "prompts and multiline recovery; redirected input is batch input.\n"
         "  -i, --interactive      require a console on standard input\n"
-        "  -I, --non-interactive  disable prompts and interactive recovery\n",
+        "  -I, --non-interactive  disable prompts and interactive recovery\n"
+        "  -l, --login            load machine then user profiles\n"
+        "      --profile path     load an explicit profile in order\n"
+        "      --no-profile       disable every executable profile\n",
         program_name,
         program_name,
         program_name,
@@ -408,6 +457,12 @@ static wsh_result invoke_frontend_runtime(
         return WSH_ERR_INVALID;
     }
     if (request->operation != WSH_RUNTIME_WRITE) {
+        if (request->operation == WSH_RUNTIME_LIBRARY &&
+            request->subject.length >= 9U &&
+            memcmp(request->subject.data, "history::", 9U) == 0) {
+            return wsh_interactive_history_invoke(
+                evaluation->interactive, request, output, status);
+        }
         return evaluation->concrete_runtime.invoke(
             evaluation->concrete_runtime.user_data,
             request,
@@ -508,6 +563,7 @@ static int evaluate_frontend_tree(
     size_t index;
     uint32_t code;
     uint32_t exit_code;
+    wsh_status_list *signal_status;
 
     evaluation = (wsh_main_evaluation *)user_data;
     status = NULL;
@@ -516,6 +572,27 @@ static int evaluate_frontend_tree(
     if (result != WSH_OK) {
         wsh_status_list_destroy(status);
         return result == WSH_ERR_RESOURCE ? 4 : 1;
+    }
+    if (InterlockedExchange(&wsh_control_observed, 0) != 0) {
+        signal_status = NULL;
+        result = wsh_evaluator_invoke_signal(
+            evaluation->evaluator,
+            wsh_string_view_from_cstr("sigint"),
+            130U,
+            &signal_status);
+        if (result != WSH_OK) {
+            wsh_status_list_destroy(signal_status);
+            wsh_status_list_destroy(status);
+            return result == WSH_ERR_RESOURCE ? 4 : 1;
+        }
+        wsh_status_list_destroy(status);
+        status = signal_status;
+        write_evaluation_diagnostics(evaluation);
+    }
+    if (evaluation->interactive != NULL &&
+        !wsh_interactive_resolve_exit(evaluation->interactive)) {
+        wsh_status_list_destroy(status);
+        return WSH_EXIT_IO;
     }
     exit_code = 0U;
     for (index = 0U; index < wsh_status_list_count(status); ++index) {
@@ -528,6 +605,269 @@ static int evaluate_frontend_tree(
     return (int)exit_code;
 }
 
+/** Adapt front-end cancellation to the interactive signal boundary. */
+static int cancel_frontend_input(void *user_data)
+{
+    wsh_main_evaluation *evaluation;
+
+    evaluation = (wsh_main_evaluation *)user_data;
+    (void)InterlockedExchange(&wsh_control_observed, 0);
+    return wsh_interactive_cancelled(evaluation->interactive);
+}
+
+/** Persist one complete interactive submission after evaluation. */
+static int observe_frontend_submission(
+    void *user_data,
+    const unsigned char *bytes,
+    size_t length,
+    int status)
+{
+    wsh_main_evaluation *evaluation;
+
+    evaluation = (wsh_main_evaluation *)user_data;
+    return wsh_interactive_submitted(
+        evaluation->interactive, bytes, length, status);
+}
+
+/** Return whether the interactive evaluator accepted orderly exit. */
+static int should_stop_frontend(void *user_data)
+{
+    wsh_main_evaluation *evaluation;
+
+    evaluation = (wsh_main_evaluation *)user_data;
+    if (evaluation->interactive != NULL) {
+        return wsh_interactive_should_stop(evaluation->interactive);
+    }
+    return wsh_evaluator_exit_requested(
+        evaluation->evaluator, NULL, NULL);
+}
+
+/** Assign the accepted two-element literal default prompt. */
+static wsh_result set_default_prompt(wsh_context *context)
+{
+    wsh_value_builder *builder;
+    wsh_value *value;
+    wsh_result result;
+
+    builder = NULL;
+    value = NULL;
+    result = wsh_value_builder_create(NULL, NULL, &builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            builder, wsh_string_view_from_cstr("% "));
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            builder, wsh_string_view_from_cstr("; "));
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(builder, &value);
+    }
+    wsh_value_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_context_set_variable(
+            context, wsh_string_view_from_cstr("prompt"), value);
+    }
+    wsh_value_destroy(value);
+    return result;
+}
+
+/** Build one default machine or user profile path through shell32. */
+static int default_profile_path(
+    int machine,
+    uint16_t **out_path,
+    size_t *out_length)
+{
+    static const uint16_t suffix[] =
+        L"\\Waughtal\\WSH\\profile.wsh";
+    HMODULE shell;
+    wsh_get_folder_path_fn get_folder;
+    WCHAR base[MAX_PATH];
+    HRESULT result;
+    size_t length;
+    size_t suffix_length;
+    uint16_t *path;
+
+    *out_path = NULL;
+    *out_length = 0U;
+    shell = LoadLibraryW(L"shell32.dll");
+    if (shell == NULL) {
+        return 0;
+    }
+    get_folder = (wsh_get_folder_path_fn)GetProcAddress(
+        shell, "SHGetFolderPathW");
+    if (get_folder == NULL) {
+        FreeLibrary(shell);
+        return 0;
+    }
+    result = get_folder(
+        NULL,
+        machine ? 0x0023 : 0x001a,
+        NULL,
+        0U,
+        base);
+    FreeLibrary(shell);
+    if (result != 0) {
+        return 0;
+    }
+    length = 0U;
+    while (base[length] != 0U) {
+        length += 1U;
+    }
+    suffix_length = sizeof(suffix) / sizeof(suffix[0]) - 1U;
+    if (length > (size_t)-1 - suffix_length - 1U) {
+        return 0;
+    }
+    path = (uint16_t *)malloc(
+        (length + suffix_length + 1U) * sizeof(*path));
+    if (path == NULL) {
+        return 0;
+    }
+    memcpy(path, base, length * sizeof(*path));
+    memcpy(
+        path + length,
+        suffix,
+        (suffix_length + 1U) * sizeof(*path));
+    *out_path = path;
+    *out_length = length + suffix_length;
+    return 1;
+}
+
+/** Evaluate one complete profile file in the active shell context. */
+static int evaluate_profile_wide(
+    wsh_main_evaluation *evaluation,
+    const uint16_t *path,
+    int required)
+{
+    HANDLE file;
+    DWORD high;
+    DWORD low;
+    unsigned char *bytes;
+    DWORD received;
+    wsh_source *source;
+    wsh_parse_tree *tree;
+    wsh_result result;
+    int status;
+
+    file = CreateFileW(
+        (LPCWSTR)path,
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        if (!required && (GetLastError() == ERROR_FILE_NOT_FOUND ||
+                          GetLastError() == ERROR_PATH_NOT_FOUND)) {
+            return 0;
+        }
+        (void)write_stream(
+            evaluation->error,
+            "wsh: profile could not be opened\r\n",
+            strlen("wsh: profile could not be opened\r\n"));
+        return WSH_EXIT_IO;
+    }
+    high = 0U;
+    SetLastError(NO_ERROR);
+    low = GetFileSize(file, &high);
+    if ((low == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) ||
+        high != 0U || low > WSH_INPUT_LIMIT) {
+        CloseHandle(file);
+        return 9;
+    }
+    bytes = (unsigned char *)malloc(low == 0U ? 1U : (size_t)low);
+    if (bytes == NULL) {
+        CloseHandle(file);
+        return 9;
+    }
+    received = 0U;
+    if (low != 0U &&
+        (!ReadFile(file, bytes, low, &received, NULL) || received != low)) {
+        free(bytes);
+        CloseHandle(file);
+        return WSH_EXIT_IO;
+    }
+    CloseHandle(file);
+    source = NULL;
+    tree = NULL;
+    result = wsh_source_create(NULL, NULL, bytes, low, &source);
+    free(bytes);
+    if (result == WSH_OK) {
+        result = wsh_parse(NULL, source, &tree);
+    }
+    wsh_source_destroy(source);
+    if (result != WSH_OK ||
+        wsh_parse_tree_status(tree) != WSH_SYNTAX_COMPLETE) {
+        wsh_parse_tree_destroy(tree);
+        (void)write_stream(
+            evaluation->error,
+            "wsh: profile syntax or encoding failure\r\n",
+            strlen("wsh: profile syntax or encoding failure\r\n"));
+        return result == WSH_ERR_ENCODING ? 6 : 3;
+    }
+    status = evaluate_frontend_tree(evaluation, tree);
+    wsh_parse_tree_destroy(tree);
+    return status;
+}
+
+/** Evaluate default and explicit profiles in accepted startup order. */
+static int load_profiles(
+    wsh_main_evaluation *evaluation,
+    int interactive,
+    const wsh_startup_options *startup)
+{
+    uint16_t *path;
+    size_t length;
+    size_t index;
+    wsh_allocator allocator;
+    wsh_string_view explicit_path;
+    int status;
+
+    if (startup == NULL || startup->no_profile) {
+        return 0;
+    }
+    path = NULL;
+    if (startup->login && default_profile_path(1, &path, &length)) {
+        status = evaluate_profile_wide(evaluation, path, 0);
+        free(path);
+        if (status != 0 || wsh_evaluator_exit_requested(
+                evaluation->evaluator, NULL, NULL)) {
+            return status;
+        }
+    }
+    path = NULL;
+    if ((interactive || startup->login) &&
+        default_profile_path(0, &path, &length)) {
+        status = evaluate_profile_wide(evaluation, path, 0);
+        free(path);
+        if (status != 0 || wsh_evaluator_exit_requested(
+                evaluation->evaluator, NULL, NULL)) {
+            return status;
+        }
+    }
+    allocator = wsh_allocator_default();
+    for (index = 0U; index < startup->profile_count; ++index) {
+        explicit_path = wsh_string_view_from_cstr(startup->profiles[index]);
+        path = NULL;
+        if (wsh_utf8_to_utf16(
+                &allocator,
+                NULL,
+                explicit_path,
+                &path,
+                &length) != WSH_OK) {
+            return 6;
+        }
+        status = evaluate_profile_wide(evaluation, path, 1);
+        wsh_allocator_release(&allocator, path);
+        if (status != 0 || wsh_evaluator_exit_requested(
+                evaluation->evaluator, NULL, NULL)) {
+            return status;
+        }
+    }
+    return 0;
+}
+
 /** Run standard input in the selected batch or interactive mode. */
 static int run_input_session(
     int interactive,
@@ -536,7 +876,8 @@ static int run_input_session(
     void *input_data,
     HANDLE input_handle,
     int argument_count,
-    char **arguments)
+    char **arguments,
+    const wsh_startup_options *startup)
 {
     HANDLE output_handle;
     HANDLE error_handle;
@@ -554,9 +895,8 @@ static int run_input_session(
     wsh_limits limits;
     wsh_result core_result;
     int argument_index;
-    DWORD original_input_mode;
-    DWORD input_mode;
-    int restore_input_mode;
+    wsh_interactive_options interactive_options;
+    int control_handler_installed;
     int result;
 
     output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -565,21 +905,7 @@ static int run_input_session(
     memset(&evaluation, 0, sizeof(evaluation));
     argument_builder = NULL;
     argument_value = NULL;
-    restore_input_mode = 0;
-
-    if (interactive) {
-        if (!GetConsoleMode(input_handle, &original_input_mode)) {
-            return WSH_EXIT_IO;
-        }
-        input_mode = original_input_mode | ENABLE_ECHO_INPUT |
-            ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT;
-        if (input_mode != original_input_mode) {
-            if (!SetConsoleMode(input_handle, input_mode)) {
-                return WSH_EXIT_IO;
-            }
-            restore_input_mode = 1;
-        }
-    }
+    control_handler_installed = 0;
 
     output_writer.stream = stdout;
     output_writer.handle = output_handle;
@@ -620,6 +946,10 @@ static int run_input_session(
         result = 4;
         goto cleanup;
     }
+    if (set_default_prompt(evaluation.context) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
     allocator = wsh_allocator_default();
     limits = wsh_limits_default();
     core_result = wsh_value_builder_create(
@@ -657,11 +987,72 @@ static int run_input_session(
     }
     io.evaluation_data = &evaluation;
     io.evaluate = evaluate_frontend_tree;
+    io.should_stop = should_stop_frontend;
+    if (interactive) {
+        wsh_interactive_options_init(&interactive_options);
+        interactive_options.input = input_handle;
+        interactive_options.output = output_handle;
+        interactive_options.error = error_handle;
+        interactive_options.context = evaluation.context;
+        interactive_options.evaluator = evaluation.evaluator;
+        interactive_options.runtime = evaluation.windows_runtime;
+        interactive_options.force_basic_input =
+            GetEnvironmentVariableW(
+                L"WSH_FORCE_BASIC_INPUT", NULL, 0U) != 0U;
+        if (wsh_interactive_create(
+                &interactive_options,
+                &evaluation.interactive) != WSH_OK) {
+            result = 4;
+            goto cleanup;
+        }
+        io.input_data = evaluation.interactive;
+        io.read_line = wsh_interactive_read;
+        io.cancel = cancel_frontend_input;
+        io.submitted = observe_frontend_submission;
+        io.should_stop = should_stop_frontend;
+        if (!SetConsoleCtrlHandler(NULL, FALSE) ||
+            !SetConsoleCtrlHandler(handle_console_control, TRUE)) {
+            result = WSH_EXIT_IO;
+            goto cleanup;
+        }
+        control_handler_installed = 1;
+        wsh_control_runtime = evaluation.windows_runtime;
+    }
+    result = load_profiles(&evaluation, interactive, startup);
+    if (result != 0) {
+        goto cleanup;
+    }
+    {
+        uint32_t profile_exit;
+
+        if (wsh_evaluator_exit_requested(
+                evaluation.evaluator, &profile_exit, NULL)) {
+            result = (int)profile_exit;
+            goto cleanup;
+        }
+    }
+    if (interactive && wsh_interactive_load_history(
+            evaluation.interactive) != WSH_OK) {
+        result = 4;
+        goto cleanup;
+    }
     wsh_frontend_options_init(&options);
     options.interactive = interactive;
+    if (interactive) {
+        options.primary_prompt = "";
+        options.continuation_prompt = "";
+    }
     result = wsh_frontend_run(&options, &io);
 
 cleanup:
+    if (evaluation.interactive != NULL) {
+        wsh_interactive_signal_exit(
+            evaluation.interactive, (uint32_t)result);
+    }
+    wsh_control_runtime = NULL;
+    if (control_handler_installed) {
+        (void)SetConsoleCtrlHandler(handle_console_control, FALSE);
+    }
     if (wsh_windows_runtime_has_open_test(evaluation.windows_runtime)) {
         static const char message[] =
             "wsh: WSH-LIB-TEST-0001 missing test::end\n";
@@ -671,20 +1062,19 @@ cleanup:
             result = 1;
         }
     }
+    wsh_interactive_destroy(evaluation.interactive);
     wsh_evaluator_destroy(evaluation.evaluator);
     wsh_context_destroy(evaluation.context);
     wsh_windows_runtime_destroy(evaluation.windows_runtime);
     wsh_value_builder_destroy(argument_builder);
     wsh_value_destroy(argument_value);
-    if (restore_input_mode &&
-        !SetConsoleMode(input_handle, original_input_mode) && result == 0) {
-        result = WSH_EXIT_IO;
-    }
     return result;
 }
 
 /** Run standard input in the selected batch or interactive mode. */
-static int run_standard_input(int interactive)
+static int run_standard_input(
+    int interactive,
+    const wsh_startup_options *startup)
 {
     HANDLE input_handle;
     wsh_file_reader file_reader;
@@ -704,7 +1094,8 @@ static int run_standard_input(int interactive)
         interactive ? (void *)&console_reader : (void *)&file_reader,
         input_handle,
         0,
-        NULL);
+        NULL,
+        startup);
     free(file_reader.bytes);
     free(console_reader.units);
     wsh_allocator_release(&console_reader.allocator, console_reader.bytes);
@@ -712,7 +1103,9 @@ static int run_standard_input(int interactive)
 }
 
 /** Run a literal command as one non-interactive input. */
-static int run_command(const char *command)
+static int run_command(
+    const char *command,
+    const wsh_startup_options *startup)
 {
     wsh_memory_reader reader;
 
@@ -726,7 +1119,8 @@ static int run_command(const char *command)
         &reader,
         GetStdHandle(STD_INPUT_HANDLE),
         0,
-        NULL);
+        NULL,
+        startup);
 }
 
 /** Open a strict UTF-8 path with the native wide Windows boundary. */
@@ -761,7 +1155,8 @@ static HANDLE open_script(const char *path)
 static int run_script(
     const char *path,
     int argument_count,
-    char **arguments)
+    char **arguments,
+    const wsh_startup_options *startup)
 {
     HANDLE handle;
     wsh_file_reader reader;
@@ -781,7 +1176,8 @@ static int run_script(
         &reader,
         handle,
         argument_count,
-        arguments);
+        arguments,
+        startup);
     free(reader.bytes);
     CloseHandle(handle);
     return result;
@@ -844,6 +1240,7 @@ static int run_internal_echo(int argc, char **argv)
 /** Process information options and select the standard-input mode. */
 static int wsh_main(int argc, char **argv)
 {
+    wsh_startup_options startup;
     int require_interactive;
     int disable_interactive;
     int end_options;
@@ -858,6 +1255,7 @@ static int wsh_main(int argc, char **argv)
         return run_internal_echo(argc, argv);
     }
 
+    memset(&startup, 0, sizeof(startup));
     require_interactive = 0;
     disable_interactive = 0;
     end_options = 0;
@@ -874,6 +1272,29 @@ static int wsh_main(int argc, char **argv)
             (strcmp(argv[i], "--non-interactive") == 0 ||
              strcmp(argv[i], "-I") == 0)) {
             disable_interactive = 1;
+        } else if (!end_options &&
+            (strcmp(argv[i], "--login") == 0 ||
+             strcmp(argv[i], "-l") == 0)) {
+            startup.login = 1;
+        } else if (!end_options &&
+            strcmp(argv[i], "--no-profile") == 0) {
+            startup.no_profile = 1;
+        } else if (!end_options &&
+            strcmp(argv[i], "--profile") == 0) {
+            if (i + 1 >= argc ||
+                startup.profile_count == WSH_MAX_PROFILES) {
+                usage(stderr, argv[0]);
+                return WSH_EXIT_USAGE;
+            }
+            startup.profiles[startup.profile_count++] = argv[++i];
+        } else if (!end_options &&
+            strncmp(argv[i], "--profile=", 10U) == 0) {
+            if (argv[i][10] == '\0' ||
+                startup.profile_count == WSH_MAX_PROFILES) {
+                usage(stderr, argv[0]);
+                return WSH_EXIT_USAGE;
+            }
+            startup.profiles[startup.profile_count++] = argv[i] + 10;
         } else if (!end_options && strcmp(argv[i], "-c") == 0) {
             if (i + 1 >= argc || i + 2 != argc) {
                 usage(stderr, argv[0]);
@@ -914,6 +1335,8 @@ static int wsh_main(int argc, char **argv)
                     require_interactive = 1;
                 } else if (argv[i][short_index] == 'I') {
                     disable_interactive = 1;
+                } else if (argv[i][short_index] == 'l') {
+                    startup.login = 1;
                 } else {
                     usage(stderr, argv[0]);
                     return WSH_EXIT_USAGE;
@@ -929,18 +1352,26 @@ static int wsh_main(int argc, char **argv)
         fprintf(stderr, "wsh: interactive modes are mutually exclusive\n");
         return WSH_EXIT_USAGE;
     }
+    if (startup.no_profile &&
+        (startup.login || startup.profile_count != 0U)) {
+        fprintf(
+            stderr,
+            "wsh: --no-profile conflicts with --login and --profile\n");
+        return WSH_EXIT_USAGE;
+    }
     if (command != NULL || script_index != 0) {
         if (require_interactive) {
             fprintf(stderr, "wsh: -i cannot be used with command input\n");
             return WSH_EXIT_USAGE;
         }
         if (command != NULL) {
-            return run_command(command);
+            return run_command(command, &startup);
         }
         return run_script(
             argv[script_index],
             argc - script_index - 1,
-            argv + script_index + 1);
+            argv + script_index + 1,
+            &startup);
     }
     input_handle = GetStdHandle(STD_INPUT_HANDLE);
     input_is_console = handle_is_console(input_handle);
@@ -948,7 +1379,9 @@ static int wsh_main(int argc, char **argv)
         fprintf(stderr, "wsh: interactive mode requires a console on stdin\n");
         return WSH_EXIT_IO;
     }
-    return run_standard_input(input_is_console && !disable_interactive);
+    return run_standard_input(
+        input_is_console && !disable_interactive,
+        &startup);
 }
 
 /** Grow one temporary UTF-16 command-line argument. */
