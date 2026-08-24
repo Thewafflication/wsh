@@ -161,6 +161,13 @@ obtained through an API not affected by application compatibility version
 lies where available, with a documented fallback on Windows 2000. The version
 is diagnostic and verification metadata, not a semantic switch.
 
+The standard library dynamically resolves precise system-time and native-
+architecture helpers and retains documented legacy fallbacks. Its file,
+directory, and process commands use the same UTF-16, logical-directory,
+resolver, handle, job, and static-import boundary as the M5 runtime. The
+embedded SHA-256 implementation avoids adding a newer operating-system import
+for file hashing and cross-volume copy verification.
+
 ## 10. Portability Acceptance
 
 A release is portable only when copying the single architecture-appropriate

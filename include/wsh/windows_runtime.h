@@ -66,6 +66,10 @@ wsh_result wsh_windows_runtime_create(
 /** Cancel, collect, and destroy an owned Windows runtime. */
 void wsh_windows_runtime_destroy(wsh_windows_runtime *runtime);
 
+/** Return nonzero when a test::begin record still requires test::end. */
+int wsh_windows_runtime_has_open_test(
+    const wsh_windows_runtime *runtime);
+
 /** Return the abstract-runtime callbacks implemented by runtime. */
 wsh_runtime wsh_windows_runtime_interface(wsh_windows_runtime *runtime);
 

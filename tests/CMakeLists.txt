@@ -527,3 +527,110 @@ set_tests_properties(
         DEPENDS "${WSH_M5_CTEST_NAMES}"
         LABELS "M5;quality"
 )
+
+set(WSH_M6_TEST_IDS
+    0024
+    0037
+    0065
+    0066
+    0067
+    0068
+    0070
+    0074
+    0075
+)
+
+add_test(
+    NAME m6-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m6"
+        -TestSpecificationsPath "docs/tests/m6"
+        -TestImplementationsPath "tests/m6"
+)
+set_tests_properties(m6-traceability PROPERTIES LABELS "M6;quality")
+
+if(WSH_ENABLE_SOURCE_QUALITY_TESTS)
+    add_test(
+        NAME m6-source-quality
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/run-m6-source-quality.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Doxygen "${WSH_DOXYGEN_EXECUTABLE}"
+    )
+    set_tests_properties(
+        m6-source-quality
+        PROPERTIES
+            DEPENDS m6-traceability
+            LABELS "M6;quality"
+    )
+endif()
+
+set(WSH_M6_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M6_TEST_IDS)
+    set(test_name "m6-TC-${test_id}")
+    list(APPEND WSH_M6_CTEST_NAMES "${test_name}")
+    add_test(
+        NAME "${test_name}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File
+                "${CMAKE_CURRENT_SOURCE_DIR}/m6/run-tc-${test_id}-m6.ps1"
+            -TestCase "TC-${test_id}"
+            -Wsh "$<TARGET_FILE:wsh>"
+            -Probe "$<TARGET_FILE:runtime-probe>"
+            -EvidenceDirectory
+                "${CMAKE_BINARY_DIR}/test-evidence/m6/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
+            -TargetArchitecture "${WSH_TEST_TARGET_ARCHITECTURE}"
+    )
+    set_tests_properties(
+        "${test_name}"
+        PROPERTIES
+            DEPENDS m6-traceability
+            LABELS "M6;controlled"
+            TIMEOUT "${WSH_TEST_TIMEOUT}"
+    )
+endforeach()
+
+add_test(
+    NAME m6-self-use
+    COMMAND
+        wsh
+        "${CMAKE_SOURCE_DIR}/examples/build-and-test.wsh"
+        "$<LOWER_CASE:${WSH_TARGET_ARCHITECTURE}-$<CONFIG>>"
+        "$<CONFIG>"
+)
+set_tests_properties(
+    m6-self-use
+    PROPERTIES
+        DEPENDS "${WSH_M6_CTEST_NAMES}"
+        LABELS "M6;self-use;integration"
+        TIMEOUT 300
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+add_test(
+    NAME m6-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory
+            "${CMAKE_BINARY_DIR}/test-evidence/m6/$<CONFIG>/current"
+        -ExpectedCount 9
+)
+set_tests_properties(
+    m6-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M6_CTEST_NAMES}"
+        LABELS "M6;quality"
+)

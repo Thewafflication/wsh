@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0066}
+\def\TCTitle{Filesystem mutation safety}
+\def\TCPurpose{Verify explicit overwrite, recursion, roots, and reparse handling.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0066}
+\def\TCDesignRef{WSH-DFS-0001 and ADR-0009}
+\def\TCFeatureRef{filesystem mutation policy}
+\def\TCTestTechnique{Destructive negative and boundary testing.}
+\def\TCPreconditions{A resolved test-owned tree, sentinel, and optional link exist.}
+\def\TCEnvironment{NTFS where reparse creation is permitted; otherwise link case fails.}
+\def\TCAssumptions{No target outside the temporary root is authorized.}
+\def\TCInputData{Existing targets, trees, roots, dot spellings, links, and races.}
+\def\TCInitialState{Every sentinel hash is recorded.}
+\def\TCProcedure{Attempt mutations with and without each explicit authorization.}
+\def\TCExpectedResult{Unauthorized effects fail and no protected sentinel changes.}
+\def\TCPostConditions{Only the test-owned temporary root is removed.}
+\TCTemplate
+\end{document}

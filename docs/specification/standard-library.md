@@ -118,6 +118,8 @@ is UTF-8 and invalid input fails.
 Parallel results are returned in input order, not completion order. Each block
 has an independent cloned shell context. The overall status is the ordered
 concatenation of block statuses and succeeds only when all blocks succeed.
+In the command form, each block operand is one quoted WSH source value; it is
+never reparsed by an intermediate command shell.
 
 ## 7. Time and System Commands
 

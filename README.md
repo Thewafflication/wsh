@@ -12,7 +12,8 @@ variables, consoles, and handles.
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
 M1 repository skeleton, M2 portable core, M3 lexer/parser, M4 language
-evaluator, and M5 Windows execution runtime are implemented.
+evaluator, M5 Windows execution runtime, and M6 embedded standard library are
+implemented.
 
 ## Install
 
@@ -59,6 +60,12 @@ pattern matching, `echo`, external commands, globbing, redirection, pipelines,
 background jobs, and process substitution are active. Child processes launch
 directly through `CreateProcessW`; WSH does not invoke a command interpreter,
 file association, App Paths entry, or `PATHEXT` search implicitly.
+
+The embedded M6 library adds namespaced filesystem, path, text, process, time,
+system, test, and introspection commands. Query commands can assign exact lists
+with `--into`; destructive filesystem behavior requires explicit recursion and
+overwrite options and refuses protected roots by default. See the
+[standard-library specification] and [self-use example].
 
 Use `-c` for one command or pass a script and its arguments directly:
 
@@ -184,6 +191,8 @@ Project-owned source files should use:
 [specification index]: docs/specification/README.md
 [milestone plan]: docs/planning/milestones.md
 [rc compatibility record]: docs/specification/rc-compatibility.md
+[standard-library specification]: docs/specification/standard-library.md
+[self-use example]: examples/build-and-test.wsh
 [architecture decisions]: docs/adr-0001-rc-inspired-windows-language.md
 [adoption record]: docs/adoption-record.md
 [rc-manual]: https://9fans.github.io/plan9port/man/man1/rc.html

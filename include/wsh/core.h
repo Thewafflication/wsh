@@ -179,6 +179,10 @@ typedef struct wsh_runtime_command {
     int raw;
     /** Nonzero asks the runtime to execute the shell `echo` stage. */
     int shell_echo;
+    /** Optional per-command logical working directory. */
+    wsh_string_view working_directory;
+    /** Nonzero marks a direct WSH host launch for nested context export. */
+    int nested_host;
 } wsh_runtime_command;
 
 /** Borrowed descriptor connection between adjacent pipeline stages. */
@@ -196,7 +200,9 @@ typedef enum wsh_runtime_launch_flag {
     /** Capture the final stage's descriptor 1 into runtime output. */
     WSH_RUNTIME_LAUNCH_CAPTURE = 2,
     /** Create a cancellable Windows process group. */
-    WSH_RUNTIME_LAUNCH_PROCESS_GROUP = 4
+    WSH_RUNTIME_LAUNCH_PROCESS_GROUP = 4,
+    /** Capture the final stage's descriptor 2 after descriptor 1. */
+    WSH_RUNTIME_LAUNCH_CAPTURE_STDERR = 8
 } wsh_runtime_launch_flag;
 
 /** Borrowed validated composition plan for one runtime request. */
@@ -213,6 +219,8 @@ typedef struct wsh_runtime_launch_plan {
     unsigned flags;
     /** Finite wait deadline in milliseconds, or zero for no deadline. */
     uint32_t timeout_milliseconds;
+    /** Explicit capture encoding, empty for strict UTF-8. */
+    wsh_string_view capture_encoding;
 } wsh_runtime_launch_plan;
 
 /** Operation categories understood by an abstract runtime. */
@@ -238,7 +246,9 @@ typedef enum wsh_runtime_operation {
     /** Create a named-pipe provider and return its path. */
     WSH_RUNTIME_PROCESS_SUBSTITUTION = 10,
     /** Request bounded cancellation of foreground or selected work. */
-    WSH_RUNTIME_CANCEL = 11
+    WSH_RUNTIME_CANCEL = 11,
+    /** Invoke one canonical embedded standard-library command. */
+    WSH_RUNTIME_LIBRARY = 12
 } wsh_runtime_operation;
 
 /** One immutable request crossing the runtime boundary. */

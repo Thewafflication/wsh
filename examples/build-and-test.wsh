@@ -1,0 +1,8 @@
+# Representative M6 self-use workflow. Arguments: preset configuration.
+test::begin TC-0067 'WSH self-hosted build and smoke test';
+process::run -- cmake --build --preset $1;
+test::assert 'CMake build failed';
+path::join --into build_directory out build $1;
+process::run -- ctest --test-dir $build_directory -C $2 -R '^(version-smoke|print-abi-smoke|m6-TC-0065)$' --output-on-failure;
+test::assert 'CTest smoke selection failed';
+test::end

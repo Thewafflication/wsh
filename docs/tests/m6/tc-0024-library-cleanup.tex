@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0024}
+\def\TCTitle{Library failure cleanup}
+\def\TCPurpose{Verify M6 cleanup and no-effect failure.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0024}
+\def\TCDesignRef{ADR-0009}
+\def\TCFeatureRef{library ownership and recovery}
+\def\TCTestTechnique{Fault injection and state-transition testing.}
+\def\TCPreconditions{A test-owned temporary root and resource snapshots exist.}
+\def\TCEnvironment{Native Windows runtime.}
+\def\TCAssumptions{Only test-owned objects may be mutated.}
+\def\TCInputData{Invalid options, paths, encodings, limits, and partial trees.}
+\def\TCInitialState{No library child, handle, or active case exists.}
+\def\TCProcedure{Trigger preparation and partial-operation failures; inspect state.}
+\def\TCExpectedResult{Primary failures remain and every owned resource is released.}
+\def\TCPostConditions{No child, handle, temporary object, or open case remains.}
+\TCTemplate
+\end{document}

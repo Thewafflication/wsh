@@ -128,4 +128,19 @@ and Release evidence for resolution, arguments, environment, descriptors,
 pipelines, jobs, capture, and process substitution. ARM64 is cross-built only;
 M5 makes no native ARM64 execution claim from the current host.
 
+## 7. M6 Standard-Library Verification Record
+
+M6 changes no accepted `rc` compatibility disposition. Its namespaced
+filesystem, path, text, process, time, system, test, and library commands are
+WSH extensions rather than aliases for `rc` commands. They preserve the
+accepted list/status model while making Windows path, encoding, process,
+resource, and destructive-operation policy explicit.
+
+`TC-0024`, `TC-0037`, `TC-0065`, `TC-0066`, `TC-0067`, `TC-0068`, `TC-0070`,
+`TC-0074`, and `TC-0075` provide native x86/x64 Debug and Release evidence for
+the embedded registry, Unicode, protected filesystem mutation, process
+wrappers, WSP test state, isolation, limits, and deterministic traversal.
+ARM64 Debug and Release compile from the same sources; native ARM64 execution
+remains a CI and later compatibility gate rather than a local claim.
+
 [rc]: https://9fans.github.io/plan9port/man/man1/rc.html

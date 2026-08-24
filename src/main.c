@@ -662,6 +662,15 @@ static int run_input_session(
     result = wsh_frontend_run(&options, &io);
 
 cleanup:
+    if (wsh_windows_runtime_has_open_test(evaluation.windows_runtime)) {
+        static const char message[] =
+            "wsh: WSH-LIB-TEST-0001 missing test::end\n";
+
+        (void)write_stream(&error_writer, message, sizeof(message) - 1U);
+        if (result == 0) {
+            result = 1;
+        }
+    }
     wsh_evaluator_destroy(evaluation.evaluator);
     wsh_context_destroy(evaluation.context);
     wsh_windows_runtime_destroy(evaluation.windows_runtime);

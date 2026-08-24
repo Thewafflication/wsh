@@ -198,6 +198,7 @@ the release receives explicit approval.
 | M3 | Complete on 2026-08-12 | `docs/milestones/m03-closeout.md`, `docs/milestones/m03-work-log.md` |
 | M4 | Complete on 2026-08-22 | `docs/milestones/m04-closeout.md`, `docs/milestones/m04-work-log.md` |
 | M5 | Complete on 2026-08-22 | `docs/milestones/m05-closeout.md`, `docs/milestones/m05-work-log.md` |
+| M6 | Complete on 2026-08-23 | `docs/milestones/m06-closeout.md`, `docs/milestones/m06-work-log.md` |
 
 **M3 recalibration (2026-08-12):** The 132k reconstructed M3 estimate is 12
 percent below its 150k control budget. Parser failure atomicity, source

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0070}
+\def\TCTitle{Standard-library context isolation}
+\def\TCPurpose{Verify independent variables, paths, children, and test state.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0070}
+\def\TCDesignRef{ADR-0009}
+\def\TCFeatureRef{library context ownership}
+\def\TCTestTechnique{Concurrency and state-isolation testing.}
+\def\TCPreconditions{Two contexts and disjoint temporary roots exist.}
+\def\TCEnvironment{Native Windows runtime.}
+\def\TCAssumptions{Process-global environment and directory remain immutable.}
+\def\TCInputData{Same variable and relative names with different context values.}
+\def\TCInitialState{Both contexts have empty library/test state.}
+\def\TCProcedure{Interleave library calls, captures, and assertions in both contexts.}
+\def\TCExpectedResult{No result, path, child, or case crosses context ownership.}
+\def\TCPostConditions{Both contexts destroy independently without leakage.}
+\TCTemplate
+\end{document}

@@ -2402,7 +2402,7 @@ wsh_result wsh_context_runtime_invoke(
         return WSH_ERR_RESOURCE;
     }
     if (request->operation < WSH_RUNTIME_READ_SOURCE ||
-        request->operation > WSH_RUNTIME_CANCEL) {
+        request->operation > WSH_RUNTIME_LIBRARY) {
         return WSH_ERR_INVALID;
     }
     result = wsh_utf8_validate(request->subject, NULL);
@@ -2601,7 +2601,7 @@ wsh_result wsh_fake_runtime_expect_arguments(
     wsh_result result;
 
     if (fake == NULL || operation < WSH_RUNTIME_READ_SOURCE ||
-        operation > WSH_RUNTIME_CANCEL) {
+        operation > WSH_RUNTIME_LIBRARY) {
         return WSH_ERR_INVALID;
     }
     if (fake->expectation_count >= fake->limits.max_runtime_expectations) {

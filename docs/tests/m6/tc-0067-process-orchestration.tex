@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0067}
+\def\TCTitle{Process-library orchestration}
+\def\TCPurpose{Verify structured process options, capture, timeout, and ordering.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0067}
+\def\TCDesignRef{ADR-0009 and M5 runtime design}
+\def\TCFeatureRef{process run, raw, capture, parallel, wait, and cancel}
+\def\TCTestTechnique{Use-case, timing-boundary, and ordering testing.}
+\def\TCPreconditions{Controlled argument, output, delay, and tree probes exist.}
+\def\TCEnvironment{Native Windows runtime.}
+\def\TCAssumptions{Scheduler completion order is intentionally uncontrolled.}
+\def\TCInputData{Unicode arguments, cwd/env edits, streams, timeouts, and blocks.}
+\def\TCInitialState{No child is registered and capture variables are absent.}
+\def\TCProcedure{Execute each option partition and a representative build/test flow.}
+\def\TCExpectedResult{Exact data and input-order statuses use M5 containment.}
+\def\TCPostConditions{Every child is collected and temporary stream is closed.}
+\TCTemplate
+\end{document}

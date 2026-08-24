@@ -2110,6 +2110,7 @@ static wsh_ast_node *wsh_parse_simple(wsh_parser *parser)
 {
     const wsh_token_data *first;
     wsh_ast_node *simple;
+    int assignments_allowed;
 
     first = wsh_current_token(parser);
     if (first == NULL || wsh_ends_simple(first)) {
@@ -2126,6 +2127,7 @@ static wsh_ast_node *wsh_parse_simple(wsh_parser *parser)
     if (simple == NULL) {
         return NULL;
     }
+    assignments_allowed = 1;
     while (!parser->stopped && parser->failure == WSH_OK &&
         !wsh_ends_simple(wsh_current_token(parser))) {
         const wsh_token_data *token;
@@ -2134,12 +2136,16 @@ static wsh_ast_node *wsh_parse_simple(wsh_parser *parser)
 
         token = wsh_current_token(parser);
         equals_index = wsh_assignment_equals(token);
-        if (equals_index != SIZE_MAX) {
+        if (assignments_allowed && equals_index != SIZE_MAX) {
             item = wsh_parse_assignment(parser, equals_index);
         } else if (wsh_starts_redirection(token)) {
             item = wsh_parse_redirection(parser);
         } else {
             item = wsh_parse_argument(parser);
+            assignments_allowed = simple->child_count == 0U &&
+                token->kind == WSH_TOKEN_WORD &&
+                token->text_length == 5U &&
+                memcmp(token->text, "local", 5U) == 0;
         }
         if (item == NULL || !wsh_add_child(parser, simple, item)) {
             return NULL;

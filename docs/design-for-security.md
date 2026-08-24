@@ -174,6 +174,28 @@ cases across x86/x64 Debug and Release. Static PE inspection also proves that
 optional modern handle-list and job APIs remain dynamically resolved and that
 no implicit-launch API enters the import table.
 
+### 6.5 M6 Standard-Library Control Record
+
+M6 centralizes filesystem effects in the isolated Windows runtime. Every
+library path is resolved against the logical directory before mutation.
+Recursive removal rejects volume/share/device roots, the initial directory,
+the executable directory, and current-directory spellings unless the caller
+supplies the separate protected-root authorization. Recursive listing, copy,
+and removal inspect reparse attributes and delete or report the entry itself
+without descending through it. Copy and move reject self-targets and directory
+destinations contained by their own source. Overwrite, recursion, parent
+creation, raw launch, and cross-volume effects remain explicit.
+
+Queries use the runtime's configured string, list, capture, child, recursion,
+and timeout ceilings. Environment inspection returns sorted names only.
+Structured process wrappers reuse M5 resolution, argument, environment,
+descriptor, job, timeout, cancellation, and cleanup controls; parallel blocks
+run in isolated nested WSH hosts with bounded concurrency. Test records cannot
+report Blocked, Not run, incomplete, or failed assertions as Pass. `TC-0066`,
+`TC-0067`, `TC-0068`, `TC-0070`, `TC-0074`, and `TC-0075` exercise protected
+roots, junction non-traversal, stream encoding, isolation, timeouts, evidence
+state, limits, cleanup, and deterministic traversal.
+
 ## 7. Secure Failure and Recovery
 
 Parsing and launch preparation fail before effect. Partially started pipelines
@@ -187,10 +209,14 @@ verification into a pass.
 
 ## 8. Cryptography and Secrets
 
-The product designs no cryptographic algorithm. It uses reviewed operating-
-system or pinned dependency implementations for entropy, SHA-256, signatures,
-and provenance verification. The private environment-envelope nonce is an
-instance-correlation aid, not a durable secret or cross-user security token.
+The product defines no new cryptographic construction. M6 includes a compact
+FIPS 180-4 SHA-256 implementation solely for deterministic file hashing and
+copy verification on the legacy Windows baseline; controlled known-answer
+tests cover it. It is not an authentication, signature, password, random-number,
+or secret-storage primitive. Signatures and provenance continue to use reviewed
+operating-system or pinned dependency implementations. The private environment-
+envelope nonce and temporary-name nonce are uniqueness aids, not durable secrets
+or cross-user security tokens.
 
 Private signing keys never enter the repository or ordinary build logs. WSH
 does not claim command-line arguments are secret. Trace and version output

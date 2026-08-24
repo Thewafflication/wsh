@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0065}
+\def\TCTitle{Embedded namespace conformance}
+\def\TCPurpose{Verify every accepted M6 command signature and introspection record.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0029, WSH-REQ-0065}
+\def\TCDesignRef{ADR-0009 and WSH-SPEC-STDLIB-0001}
+\def\TCFeatureRef{filesystem, path, text, process, time, system, test, library}
+\def\TCTestTechnique{Interface and decision-table testing.}
+\def\TCPreconditions{The embedded registry and native runtime are built.}
+\def\TCEnvironment{Every supported build architecture.}
+\def\TCAssumptions{Interactive history commands remain allocated to M7.}
+\def\TCInputData{Every canonical name, signature, option, and output mode.}
+\def\TCInitialState{The context contains only its imported baseline.}
+\def\TCProcedure{Describe and invoke every M6 registry entry in valid partitions.}
+\def\TCExpectedResult{Signatures, statuses, exact lists, and text records match.}
+\def\TCPostConditions{The context and test root are restored.}
+\TCTemplate
+\end{document}

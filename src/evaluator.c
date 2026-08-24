@@ -6,6 +6,8 @@
 
 #include "wsh/evaluator.h"
 
+#include "standard_library.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3031,6 +3033,389 @@ static wsh_result eval_builtin_local(
     return eval_status_one(evaluator, 0U, out_status);
 }
 
+/** Extract common library `--into` and publish remaining arguments. */
+static wsh_result eval_library_arguments(
+    wsh_evaluator *evaluator,
+    const eval_words *words,
+    const wsh_library_descriptor *descriptor,
+    wsh_value **out_arguments,
+    wsh_string_view *out_destination)
+{
+    wsh_value_builder *builder;
+    size_t index;
+    int options;
+    int accepts_into;
+    wsh_result result;
+
+    *out_arguments = NULL;
+    out_destination->data = NULL;
+    out_destination->length = 0U;
+    accepts_into = (descriptor->flags &
+        (WSH_LIBRARY_ACCEPTS_INTO | WSH_LIBRARY_REQUIRES_INTO)) != 0U;
+    options = 1;
+    result = wsh_value_builder_create(
+        &evaluator->allocator, &evaluator->limits, &builder);
+    for (index = 1U; result == WSH_OK && index < words->count; ++index) {
+        if (options && eval_word_is(words, index, "--")) {
+            options = 0;
+        }
+        if (options && accepts_into &&
+            eval_word_is(words, index, "--into")) {
+            if (out_destination->data != NULL || index + 1U >= words->count) {
+                result = WSH_ERR_INVALID;
+                break;
+            }
+            index += 1U;
+            *out_destination = wsh_string_bytes(words->items[index].text);
+            if (out_destination->length == 0U) {
+                result = WSH_ERR_INVALID;
+            }
+            continue;
+        }
+        result = wsh_value_builder_append(
+            builder, wsh_string_bytes(words->items[index].text));
+    }
+    if (result == WSH_OK &&
+        (descriptor->flags & WSH_LIBRARY_REQUIRES_INTO) != 0U &&
+        out_destination->data == NULL) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(builder, out_arguments);
+    }
+    wsh_value_builder_destroy(builder);
+    return result;
+}
+
+/** Write library query records through the active descriptor boundary. */
+static wsh_result eval_library_write(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    const wsh_value *output)
+{
+    wsh_string_builder *text_builder;
+    wsh_string *text;
+    wsh_value_builder *value_builder;
+    wsh_value *value;
+    wsh_runtime_request request;
+    wsh_value *ignored;
+    wsh_status_list *status;
+    wsh_string_view item;
+    size_t index;
+    wsh_result result;
+
+    if (wsh_value_count(output) == 0U) {
+        return WSH_OK;
+    }
+    result = wsh_string_builder_create(
+        &evaluator->allocator, &evaluator->limits, &text_builder);
+    for (index = 0U; result == WSH_OK &&
+         index < wsh_value_count(output); ++index) {
+        result = wsh_value_at(output, index, &item);
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(text_builder, item);
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                text_builder, wsh_string_view_from_cstr("\r\n"));
+        }
+    }
+    text = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(text_builder, &text);
+    }
+    wsh_string_builder_destroy(text_builder);
+    if (result == WSH_OK && evaluator->capture != NULL) {
+        result = wsh_string_builder_append(
+            evaluator->capture, wsh_string_bytes(text));
+    }
+    value = NULL;
+    value_builder = NULL;
+    if (result == WSH_OK) {
+        result = wsh_value_builder_create(
+            &evaluator->allocator, &evaluator->limits, &value_builder);
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            value_builder, wsh_string_bytes(text));
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(value_builder, &value);
+    }
+    wsh_value_builder_destroy(value_builder);
+    memset(&request, 0, sizeof(request));
+    request.operation = WSH_RUNTIME_WRITE;
+    request.subject = wsh_string_view_from_cstr("stdout");
+    request.arguments = value;
+    request.context = evaluator->context;
+    request.launch_plan = evaluator->active_plan;
+    ignored = NULL;
+    status = NULL;
+    if (result == WSH_OK) {
+        result = wsh_context_runtime_invoke(
+            evaluator->context, &request, &ignored, &status);
+    }
+    if (result == WSH_OK && !wsh_status_list_is_success(status)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result != WSH_OK) {
+        eval_diagnostic(
+            evaluator, WSH_DIAGNOSTIC_RUNTIME,
+            "WSH-LIB-0002 query output write failed", node);
+    }
+    wsh_status_list_destroy(status);
+    wsh_value_destroy(ignored);
+    wsh_value_destroy(value);
+    wsh_string_destroy(text);
+    return result;
+}
+
+/** Assign captured process streams without serializing through stdout. */
+static wsh_result eval_library_capture_assign(
+    wsh_evaluator *evaluator,
+    const eval_words *words,
+    const wsh_value *output)
+{
+    wsh_string_view stdout_name;
+    wsh_string_view stderr_name;
+    wsh_string_view item;
+    wsh_value_builder *builder;
+    wsh_value *value;
+    size_t index;
+    size_t output_index;
+    int options;
+    wsh_result result;
+    wsh_result restore_result;
+
+    stdout_name.data = NULL;
+    stdout_name.length = 0U;
+    stderr_name.data = NULL;
+    stderr_name.length = 0U;
+    options = 1;
+    for (index = 1U; index < words->count && options; ++index) {
+        if (eval_word_is(words, index, "--")) {
+            options = 0;
+        } else if ((eval_word_is(words, index, "--stdout") ||
+                    eval_word_is(words, index, "--stderr")) &&
+            index + 1U < words->count) {
+            if (eval_word_is(words, index, "--stdout")) {
+                stdout_name = wsh_string_bytes(words->items[index + 1U].text);
+            } else {
+                stderr_name = wsh_string_bytes(words->items[index + 1U].text);
+            }
+            index += 1U;
+        }
+    }
+    if (stdout_name.data == NULL || stdout_name.length == 0U ||
+        (stderr_name.data != NULL && (stderr_name.length == 0U ||
+         wsh_string_view_equal(stdout_name, stderr_name)))) {
+        return WSH_ERR_INVALID;
+    }
+    result = eval_scope_push(evaluator);
+    if (result != WSH_OK) {
+        return result;
+    }
+    output_index = 0U;
+    for (index = 0U; result == WSH_OK && index < 2U; ++index) {
+        wsh_string_view name;
+
+        name = index == 0U ? stdout_name : stderr_name;
+        if (name.data == NULL) {
+            continue;
+        }
+        item.data = NULL;
+        item.length = 0U;
+        if (output_index < wsh_value_count(output)) {
+            result = wsh_value_at(output, output_index, &item);
+        }
+        builder = NULL;
+        if (result == WSH_OK) {
+            result = wsh_value_builder_create(
+                &evaluator->allocator, &evaluator->limits, &builder);
+        }
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(builder, item);
+        }
+        value = NULL;
+        if (result == WSH_OK) {
+            result = wsh_value_builder_finish(builder, &value);
+        }
+        wsh_value_builder_destroy(builder);
+        if (result == WSH_OK) {
+            result = eval_scope_remember(evaluator, name);
+        }
+        if (result == WSH_OK) {
+            result = wsh_context_set_variable(
+                evaluator->context, name, value);
+        }
+        wsh_value_destroy(value);
+        output_index += 1U;
+    }
+    if (result == WSH_OK) {
+        eval_scope_commit(evaluator);
+    } else {
+        restore_result = eval_scope_pop(evaluator);
+        if (restore_result != WSH_OK) {
+            eval_diagnostic(
+                evaluator,
+                WSH_DIAGNOSTIC_RUNTIME,
+                "WSH-LIB-0004 capture assignment rollback failed",
+                NULL);
+        }
+    }
+    return result;
+}
+
+/** Invoke one recognized embedded standard-library command. */
+static wsh_result eval_builtin_library(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    const eval_words *words,
+    const wsh_library_descriptor *descriptor,
+    wsh_status_list **out_status)
+{
+    wsh_runtime_request request;
+    wsh_value *arguments;
+    wsh_value *output;
+    wsh_string_view destination;
+    wsh_result result;
+
+    arguments = NULL;
+    result = eval_library_arguments(
+        evaluator, words, descriptor, &arguments, &destination);
+    if (result != WSH_OK) {
+        eval_diagnostic(
+            evaluator, WSH_DIAGNOSTIC_EVALUATION,
+            "WSH-LIB-0001 invalid standard-library arguments", node);
+        return result;
+    }
+    memset(&request, 0, sizeof(request));
+    request.operation = WSH_RUNTIME_LIBRARY;
+    request.subject = wsh_string_bytes(words->items[0].text);
+    request.arguments = arguments;
+    request.context = evaluator->context;
+    request.launch_plan = evaluator->active_plan;
+    output = NULL;
+    *out_status = NULL;
+    result = wsh_context_runtime_invoke(
+        evaluator->context, &request, &output, out_status);
+    if (result != WSH_OK) {
+        eval_diagnostic(
+            evaluator, WSH_DIAGNOSTIC_RUNTIME,
+            "WSH-LIB-0003 standard-library runtime request failed", node);
+    }
+    if (result == WSH_OK && wsh_status_list_count(*out_status) == 0U) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK && wsh_string_view_equal(
+            request.subject,
+            wsh_string_view_from_cstr("process::capture"))) {
+        result = eval_library_capture_assign(evaluator, words, output);
+    } else if (result == WSH_OK && wsh_string_view_equal(
+            request.subject, wsh_string_view_from_cstr("test::end"))) {
+        result = eval_library_write(evaluator, node, output);
+    } else if (result == WSH_OK && wsh_status_list_is_success(*out_status)) {
+        if (destination.data != NULL) {
+            result = wsh_context_set_variable(
+                evaluator->context, destination, output);
+        } else {
+            result = eval_library_write(evaluator, node, output);
+        }
+    }
+    wsh_value_destroy(output);
+    wsh_value_destroy(arguments);
+    if (result != WSH_OK) {
+        wsh_status_list_destroy(*out_status);
+        *out_status = NULL;
+    }
+    return result;
+}
+
+/** Describe embedded library commands in a stable readable form. */
+static wsh_result eval_builtin_whatis(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    const eval_words *words,
+    wsh_status_list **out_status)
+{
+    const wsh_library_descriptor *descriptor;
+    wsh_string_builder *line_builder;
+    wsh_string *line;
+    wsh_value_builder *output_builder;
+    wsh_value *output;
+    size_t index;
+    wsh_result result;
+
+    if (words->count < 2U) {
+        return WSH_ERR_INVALID;
+    }
+    output_builder = NULL;
+    result = wsh_value_builder_create(
+        &evaluator->allocator, &evaluator->limits, &output_builder);
+    for (index = 1U; result == WSH_OK && index < words->count; ++index) {
+        descriptor = wsh_library_find(
+            wsh_string_bytes(words->items[index].text));
+        if (descriptor == NULL) {
+            result = WSH_ERR_MISMATCH;
+            break;
+        }
+        line_builder = NULL;
+        result = wsh_string_builder_create(
+            &evaluator->allocator, &evaluator->limits, &line_builder);
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr("library '"));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr(descriptor->name));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr("' usage='"));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr(descriptor->signature));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr("' summary='"));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr(descriptor->summary));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                line_builder, wsh_string_view_from_cstr("'"));
+        }
+        line = NULL;
+        if (result == WSH_OK) {
+            result = wsh_string_builder_finish(line_builder, &line);
+        }
+        wsh_string_builder_destroy(line_builder);
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(
+                output_builder, wsh_string_bytes(line));
+        }
+        wsh_string_destroy(line);
+    }
+    output = NULL;
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(output_builder, &output);
+    }
+    wsh_value_builder_destroy(output_builder);
+    if (result == WSH_OK) {
+        result = eval_library_write(evaluator, node, output);
+    }
+    wsh_value_destroy(output);
+    if (result == WSH_OK) {
+        result = eval_status_one(evaluator, 0U, out_status);
+    }
+    return result;
+}
+
 /** Execute a built-in command when recognized. */
 static wsh_result eval_builtin(
     wsh_evaluator *evaluator,
@@ -3051,8 +3436,19 @@ static wsh_result eval_builtin(
     wsh_value_builder *builder;
     wsh_string_view item;
     size_t shift;
+    const wsh_library_descriptor *library;
 
     *out_handled = 1;
+    library = words->count == 0U ? NULL : wsh_library_find(
+        wsh_string_bytes(words->items[0].text));
+    if (library != NULL) {
+        return eval_builtin_library(
+            evaluator, node, words, library, out_status);
+    }
+    if (eval_word_is(words, 0U, "whatis")) {
+        return eval_builtin_whatis(
+            evaluator, node, words, out_status);
+    }
     if (eval_word_is(words, 0U, "echo")) {
         return eval_builtin_echo(evaluator, node, words, out_status);
     }

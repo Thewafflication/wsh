@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0074}
+\def\TCTitle{Standard-library resource limits}
+\def\TCPurpose{Verify finite enumeration, file, capture, jobs, and evidence bounds.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0074}
+\def\TCDesignRef{ADR-0009 and WSH-DFS-0001}
+\def\TCFeatureRef{library resource ceilings}
+\def\TCTestTechnique{Boundary-value and resource-exhaustion testing.}
+\def\TCPreconditions{Small injected limits and controlled oversized inputs exist.}
+\def\TCEnvironment{Native runtime and deterministic fixtures.}
+\def\TCAssumptions{Limit failures are expected test outcomes, not passes.}
+\def\TCInputData{At-limit and over-limit paths, trees, files, output, jobs, diagnostics.}
+\def\TCInitialState{Resource snapshots and sentinels are recorded.}
+\def\TCProcedure{Exercise every allocated ceiling and retry a valid operation.}
+\def\TCExpectedResult{Over-limit calls fail before uncontrolled use and recovery works.}
+\def\TCPostConditions{No resource remains above baseline.}
+\TCTemplate
+\end{document}

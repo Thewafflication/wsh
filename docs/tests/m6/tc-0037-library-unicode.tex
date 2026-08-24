@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0037}
+\def\TCTitle{Standard-library Unicode round trip}
+\def\TCPurpose{Verify M6 supplementary Unicode preservation.}
+\def\TCPriority{\TCPriorityHigh}
+\def\TCRequirementRef{WSH-REQ-0037}
+\def\TCDesignRef{ADR-0009}
+\def\TCFeatureRef{text, paths, files, capture, and evidence}
+\def\TCTestTechnique{Encoding equivalence partitioning.}
+\def\TCPreconditions{UTF-8 and UTF-16 capable native filesystems are available.}
+\def\TCEnvironment{x86, x64, or ARM64 Windows.}
+\def\TCAssumptions{Input contains only accepted Unicode scalar values.}
+\def\TCInputData{BMP, supplementary, empty, separator, and invalid byte cases.}
+\def\TCInitialState{No test files or result variables exist.}
+\def\TCProcedure{Round trip every input through applicable library boundaries.}
+\def\TCExpectedResult{Valid scalars remain exact and invalid encodings fail closed.}
+\def\TCPostConditions{All created files and variables are removed.}
+\TCTemplate
+\end{document}

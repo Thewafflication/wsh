@@ -68,6 +68,15 @@ the language. User-facing commands provide stable namespaced contracts. The
 same command implementations are registered in the executable and embedding
 contexts.
 
+One immutable descriptor table in the portable core supplies canonical names,
+signatures, summaries, result modes, and policy classifications. The evaluator
+recognizes that table, validates common `--into` assignment, and crosses the
+runtime boundary with `WSH_RUNTIME_LIBRARY`. The isolated Windows runtime owns
+filesystem paths, process wrappers, clocks, system queries, and active test
+state; it reuses the same logical directory, allocator, limits, descriptors,
+child registry, and cleanup paths as ordinary command execution. ADR-0009
+controls this boundary.
+
 ### 2.5 Runtime Service Boundary
 
 The runtime boundary covers files, paths, clocks, entropy, environment,
@@ -119,10 +128,12 @@ Every allocation and Windows handle has one documented owner. Transfers are
 explicit. Cleanup paths are idempotent. A failure returns a structured error
 without leaking partially initialized state.
 
-AST and value construction use commit-or-discard builders. Process launch uses
-a prepared launch record: arguments, environment, directory, descriptors, and
-policy are validated before `CreateProcessW`. A partially started pipeline is
-cancelled and collected before evaluation returns.
+AST, value, and standard-library query construction use commit-or-discard
+builders. Process launch uses a prepared launch record: arguments,
+environment, directory, descriptors, and policy are validated before
+`CreateProcessW`. A partially started pipeline is cancelled and collected
+before evaluation returns. Filesystem tree copy verifies the destination
+before a cross-volume move removes its source.
 
 ## 6. Dependency Direction
 
@@ -153,6 +164,6 @@ Windows platform implementation. The public ABI does not expose WCRT internals.
 
 The ADR set records the `rc` adaptation, parser/runtime separation,
 WPM/WCRT/CMake/CTest toolchain, single-binary compatibility, embedding boundary,
-configuration/registry model, process/status model, and old/new Windows handle
-inheritance strategy. Proposed ADRs become authoritative only through the WSP
-baseline review.
+configuration/registry model, process/status model, old/new Windows handle
+inheritance strategy, and embedded standard-library boundary. Proposed ADRs
+become authoritative only through the WSP baseline review.

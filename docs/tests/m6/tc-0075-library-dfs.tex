@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0075}
+\def\TCTitle{Hostile standard-library boundary}
+\def\TCPurpose{Verify M6 DFS controls and recovery.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0066, WSH-REQ-0075}
+\def\TCDesignRef{WSH-DFS-0001 and ADR-0009}
+\def\TCFeatureRef{paths, reparse, temporary, raw, secrets, and evidence}
+\def\TCTestTechnique{Threat-based misuse and race testing.}
+\def\TCPreconditions{Protected sentinels, hostile paths, and probes are available.}
+\def\TCEnvironment{Native Windows runtime with restricted and normal cases.}
+\def\TCAssumptions{Test authorization is limited to its temporary root.}
+\def\TCInputData{Roots, traversal, links, swaps, collisions, secrets, malformed records.}
+\def\TCInitialState{Protected hashes and process/handle counts are recorded.}
+\def\TCProcedure{Attempt every allocated threat and inspect control/recovery state.}
+\def\TCExpectedResult{Controls fail closed without disclosure or escaped effect.}
+\def\TCPostConditions{Sentinels match and no child, handle, link target, or case remains.}
+\TCTemplate
+\end{document}

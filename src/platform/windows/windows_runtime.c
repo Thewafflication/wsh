@@ -6,6 +6,9 @@
 
 #include "wsh/windows_runtime.h"
 
+#include "../../sha256.h"
+#include "../../standard_library.h"
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +32,16 @@
 /** Shell-generated interruption status. */
 #define WSH_WINDOWS_CANCEL_STATUS 130U
 
+#ifndef WSH_VERSION
+/** Product version supplied by the build. */
+#define WSH_VERSION "unavailable"
+#endif
+
+#ifndef WSH_WCRT_VERSION
+/** WCRT version supplied by the build. */
+#define WSH_WCRT_VERSION "unavailable"
+#endif
+
 #ifndef FILE_SHARE_DELETE
 /** Old-SDK value for delete-sharing access. */
 #define FILE_SHARE_DELETE 0x00000004U
@@ -47,6 +60,11 @@
 #ifndef EXTENDED_STARTUPINFO_PRESENT
 /** Old-SDK process-creation flag for STARTUPINFOEXW. */
 #define EXTENDED_STARTUPINFO_PRESENT 0x00080000U
+#endif
+
+#ifndef PROCESSOR_ARCHITECTURE_ARM64
+/** ARM64 processor identifier missing from old SDKs. */
+#define PROCESSOR_ARCHITECTURE_ARM64 12U
 #endif
 
 #ifndef PROC_THREAD_ATTRIBUTE_HANDLE_LIST
@@ -208,6 +226,10 @@ typedef struct wsh_windows_stage {
     uint16_t *environment;
     /** Environment units including the final double NUL. */
     size_t environment_length;
+    /** Optional owned per-command working directory. */
+    uint16_t *working_directory;
+    /** Working-directory units excluding NUL. */
+    size_t working_directory_length;
     /** Current borrowed or owned logical descriptor handles. */
     HANDLE descriptors[WSH_WINDOWS_DESCRIPTORS];
     /** Nonzero for descriptor handles owned by this stage. */
@@ -227,6 +249,10 @@ struct wsh_windows_runtime {
     uint16_t *working_directory;
     /** Working-directory units excluding NUL. */
     size_t working_directory_length;
+    /** Owned immutable initial logical working directory. */
+    uint16_t *initial_directory;
+    /** Initial-directory units excluding NUL. */
+    size_t initial_directory_length;
     /** Owned captured per-drive logical current directories. */
     uint16_t *drive_directories[26];
     /** Unit counts for captured per-drive directories. */
@@ -275,6 +301,20 @@ struct wsh_windows_runtime {
     size_t substitution_count;
     /** Allocated provider record slots. */
     size_t substitution_capacity;
+    /** Nonzero while one test::begin/test::end record is active. */
+    int test_active;
+    /** Number of failed assertions in the active test record. */
+    size_t test_failures;
+    /** Terminal verdict: zero normal, one blocked, two skipped. */
+    int test_terminal;
+    /** Owned active controlled-test identifier. */
+    char *test_identifier;
+    /** Owned active controlled-test title. */
+    char *test_title;
+    /** Owned terminal reason, when present. */
+    char *test_reason;
+    /** Active test start counter. */
+    LARGE_INTEGER test_started;
 };
 
 /** Cancel or collect every registered named-pipe provider. */
@@ -286,6 +326,30 @@ static void wsh_windows_collect_substitutions(
 static wsh_result wsh_windows_append_status(
     wsh_status_builder *status,
     uint32_t code);
+
+/** Resolve one library path against the runtime's logical directory. */
+static wsh_result wsh_windows_library_absolute_path(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    uint16_t **out_wide,
+    size_t *out_length);
+
+/** Append one standard-library `key=value` result field. */
+static wsh_result wsh_windows_library_append_field(
+    const wsh_windows_runtime *runtime,
+    wsh_value_builder *output,
+    const char *key,
+    const char *value);
+
+/** Decode supported explicit text with optional line normalization. */
+static wsh_result wsh_windows_library_decode_text(
+    const wsh_windows_runtime *runtime,
+    const unsigned char *bytes,
+    size_t length,
+    wsh_string_view encoding,
+    int normalize_lines,
+    char **out_text,
+    size_t *out_length);
 
 /** Return whether multiplication fits in size_t. */
 static int wsh_windows_multiply(
@@ -1053,6 +1117,15 @@ wsh_result wsh_windows_runtime_create(
         &runtime->working_directory,
         &runtime->working_directory_length);
     if (result == WSH_OK) {
+        result = wsh_windows_copy_wide_path(
+            runtime,
+            runtime->working_directory,
+            runtime->working_directory_length,
+            &runtime->initial_directory);
+        runtime->initial_directory_length =
+            runtime->working_directory_length;
+    }
+    if (result == WSH_OK) {
         result = wsh_windows_capture_drive_directories(runtime);
     }
     if (result == WSH_OK) {
@@ -1102,16 +1175,27 @@ void wsh_windows_runtime_destroy(wsh_windows_runtime *runtime)
     }
     wsh_windows_release(runtime, runtime->groups);
     wsh_windows_release(runtime, runtime->working_directory);
+    wsh_windows_release(runtime, runtime->initial_directory);
     for (index = 0U; index < 26U; ++index) {
         wsh_windows_release(runtime, runtime->drive_directories[index]);
     }
     wsh_windows_release(runtime, runtime->executable_path);
+    wsh_windows_release(runtime, runtime->test_identifier);
+    wsh_windows_release(runtime, runtime->test_title);
+    wsh_windows_release(runtime, runtime->test_reason);
     if (runtime->launch_lock_initialized) {
         DeleteCriticalSection(&runtime->launch_lock);
     }
     allocator = runtime->options.allocator;
     memset(runtime, 0, sizeof(*runtime));
     allocator.deallocate(allocator.user_data, runtime);
+}
+
+/** @brief Implements wsh_windows_runtime_has_open_test. */
+int wsh_windows_runtime_has_open_test(
+    const wsh_windows_runtime *runtime)
+{
+    return runtime != NULL && runtime->test_active;
 }
 
 /** @brief Implements wsh_windows_runtime_get_capabilities. */
@@ -2708,6 +2792,7 @@ static void wsh_windows_stage_destroy(
     wsh_windows_release(runtime, stage->application);
     wsh_windows_release(runtime, stage->command_line);
     wsh_windows_release(runtime, stage->environment);
+    wsh_windows_release(runtime, stage->working_directory);
     memset(stage, 0, sizeof(*stage));
 }
 
@@ -2754,6 +2839,7 @@ static wsh_result wsh_windows_stage_prepare(
     wsh_value *nested_arguments;
     const wsh_value *serialized_arguments;
     int nested_wsh;
+    int nested_script;
     wsh_result result;
 
     memset(stage, 0, sizeof(*stage));
@@ -2779,8 +2865,9 @@ static wsh_result wsh_windows_stage_prepare(
         return result;
     }
     resolved_view = wsh_string_bytes(stage->resolved);
-    nested_wsh = command->shell_echo ||
+    nested_wsh = command->nested_host || command->shell_echo ||
         (!command->raw && wsh_windows_is_wsh_path(resolved_view));
+    nested_script = !command->nested_host && nested_wsh;
     serialized_arguments = command->arguments;
     if (command->shell_echo) {
         result = wsh_windows_echo_arguments(
@@ -2793,7 +2880,7 @@ static wsh_result wsh_windows_stage_prepare(
                 &stage->application,
                 &stage->application_length);
         }
-    } else if (nested_wsh) {
+    } else if (nested_script) {
         result = wsh_windows_executable_utf8(runtime, &application_utf8);
         if (result == WSH_OK) {
             result = wsh_windows_nested_arguments(
@@ -2834,7 +2921,7 @@ static wsh_result wsh_windows_stage_prepare(
     } else if (result == WSH_OK) {
         result = wsh_windows_runtime_serialize(
             runtime,
-            nested_wsh ? wsh_string_bytes(application_utf8) :
+            nested_script ? wsh_string_bytes(application_utf8) :
                 resolved_view,
             serialized_arguments,
             &stage->command_line,
@@ -2847,6 +2934,18 @@ static wsh_result wsh_windows_stage_prepare(
             nested_wsh,
             &stage->environment,
             &stage->environment_length);
+    }
+    if (result == WSH_OK && command->working_directory.length != 0U) {
+        result = wsh_windows_library_absolute_path(
+            runtime,
+            command->working_directory,
+            &stage->working_directory,
+            &stage->working_directory_length);
+        if (result == WSH_OK &&
+            (GetFileAttributesW((LPCWSTR)stage->working_directory) &
+             FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+            result = WSH_ERR_MISMATCH;
+        }
     }
     wsh_string_destroy(application_utf8);
     wsh_value_destroy(nested_arguments);
@@ -3345,7 +3444,8 @@ static wsh_result wsh_windows_create_suspended(
             handle_count != 0U ? TRUE : FALSE,
             creation_flags,
             stage->environment,
-            (LPCWSTR)runtime->working_directory,
+            (LPCWSTR)(stage->working_directory != NULL ?
+                stage->working_directory : runtime->working_directory),
             startup,
             &stage->process);
         if (!created) {
@@ -3838,8 +3938,8 @@ static wsh_result wsh_windows_launch_plan(
     HANDLE pipe_read;
     HANDLE pipe_write;
     wsh_windows_group *group;
-    wsh_capture_state capture;
-    HANDLE capture_thread;
+    wsh_capture_state captures[2];
+    HANDLE capture_threads[2];
     uint32_t timeout;
     wsh_result result;
 
@@ -3849,7 +3949,8 @@ static wsh_result wsh_windows_launch_plan(
         plan->edge_count + 1U != plan->command_count ||
         (plan->edge_count != 0U && plan->edges == NULL) ||
         ((plan->flags & WSH_RUNTIME_LAUNCH_BACKGROUND) != 0U &&
-         (plan->flags & WSH_RUNTIME_LAUNCH_CAPTURE) != 0U)) {
+         (plan->flags & (WSH_RUNTIME_LAUNCH_CAPTURE |
+          WSH_RUNTIME_LAUNCH_CAPTURE_STDERR)) != 0U)) {
         return WSH_ERR_INVALID;
     }
     if (!wsh_windows_multiply(
@@ -3862,10 +3963,12 @@ static wsh_result wsh_windows_launch_plan(
         return WSH_ERR_RESOURCE;
     }
     group = NULL;
-    memset(&capture, 0, sizeof(capture));
-    capture.runtime = runtime;
-    capture.handle = INVALID_HANDLE_VALUE;
-    capture_thread = NULL;
+    memset(captures, 0, sizeof(captures));
+    memset(capture_threads, 0, sizeof(capture_threads));
+    for (index = 0U; index < 2U; ++index) {
+        captures[index].runtime = runtime;
+        captures[index].handle = INVALID_HANDLE_VALUE;
+    }
     result = WSH_OK;
     for (index = 0U; result == WSH_OK &&
          index < plan->command_count; ++index) {
@@ -3900,11 +4003,23 @@ static wsh_result wsh_windows_launch_plan(
         if (!CreatePipe(&pipe_read, &pipe_write, NULL, 0U)) {
             result = WSH_ERR_INTERNAL;
         } else {
-            capture.handle = pipe_read;
+            captures[0].handle = pipe_read;
             wsh_windows_stage_close_descriptor(
                 &stages[plan->command_count - 1U], 1U);
             stages[plan->command_count - 1U].descriptors[1] = pipe_write;
             stages[plan->command_count - 1U].descriptor_owned[1] = 1;
+        }
+    }
+    if (result == WSH_OK &&
+        (plan->flags & WSH_RUNTIME_LAUNCH_CAPTURE_STDERR) != 0U) {
+        if (!CreatePipe(&pipe_read, &pipe_write, NULL, 0U)) {
+            result = WSH_ERR_INTERNAL;
+        } else {
+            captures[1].handle = pipe_read;
+            wsh_windows_stage_close_descriptor(
+                &stages[plan->command_count - 1U], 2U);
+            stages[plan->command_count - 1U].descriptors[2] = pipe_write;
+            stages[plan->command_count - 1U].descriptor_owned[2] = 1;
         }
     }
     for (index = 0U; result == WSH_OK &&
@@ -3935,11 +4050,18 @@ static wsh_result wsh_windows_launch_plan(
             }
         }
     }
-    if (result == WSH_OK && capture.handle != INVALID_HANDLE_VALUE) {
-        capture_thread = CreateThread(
-            NULL, 0U, wsh_windows_capture_thread, &capture, 0U, NULL);
-        if (capture_thread == NULL) {
-            result = WSH_ERR_RESOURCE;
+    for (index = 0U; result == WSH_OK && index < 2U; ++index) {
+        if (captures[index].handle != INVALID_HANDLE_VALUE) {
+            capture_threads[index] = CreateThread(
+                NULL,
+                0U,
+                wsh_windows_capture_thread,
+                &captures[index],
+                0U,
+                NULL);
+            if (capture_threads[index] == NULL) {
+                result = WSH_ERR_RESOURCE;
+            }
         }
     }
     for (index = 0U; result == WSH_OK &&
@@ -3975,9 +4097,12 @@ static wsh_result wsh_windows_launch_plan(
             }
         }
     }
-    if (capture.handle != INVALID_HANDLE_VALUE && capture_thread == NULL) {
-        CloseHandle(capture.handle);
-        capture.handle = INVALID_HANDLE_VALUE;
+    for (index = 0U; index < 2U; ++index) {
+        if (captures[index].handle != INVALID_HANDLE_VALUE &&
+            capture_threads[index] == NULL) {
+            CloseHandle(captures[index].handle);
+            captures[index].handle = INVALID_HANDLE_VALUE;
+        }
     }
     if (result == WSH_OK &&
         (plan->flags & WSH_RUNTIME_LAUNCH_BACKGROUND) != 0U) {
@@ -4009,19 +4134,45 @@ static wsh_result wsh_windows_launch_plan(
         result = wsh_windows_wait_group(
             runtime, group, timeout, status);
     }
-    if (capture_thread != NULL) {
-        (void)WaitForSingleObject(capture_thread, INFINITE);
-        CloseHandle(capture_thread);
-        capture_thread = NULL;
-        if (result == WSH_OK && capture.failed) {
+    for (index = 0U; index < 2U; ++index) {
+        if (capture_threads[index] != NULL) {
+            (void)WaitForSingleObject(capture_threads[index], INFINITE);
+            CloseHandle(capture_threads[index]);
+            capture_threads[index] = NULL;
+        }
+        if (result == WSH_OK && captures[index].failed) {
             result = WSH_ERR_RESOURCE;
         }
-        if (result == WSH_OK && capture.length != 0U) {
+        if (result == WSH_OK &&
+            (captures[index].length != 0U ||
+             (plan->flags & WSH_RUNTIME_LAUNCH_CAPTURE_STDERR) != 0U)) {
             wsh_string_view captured;
+            char *decoded;
+            size_t decoded_length;
 
-            captured.data = capture.bytes;
-            captured.length = capture.length;
-            result = wsh_value_builder_append(output, captured);
+            captured.data = captures[index].bytes;
+            captured.length = captures[index].length;
+            decoded = NULL;
+            decoded_length = 0U;
+            if (plan->capture_encoding.length != 0U &&
+                !wsh_string_view_equal(
+                    plan->capture_encoding,
+                    wsh_string_view_from_cstr("utf-8"))) {
+                result = wsh_windows_library_decode_text(
+                    runtime,
+                    (const unsigned char *)captured.data,
+                    captured.length,
+                    plan->capture_encoding,
+                    0,
+                    &decoded,
+                    &decoded_length);
+                captured.data = decoded;
+                captured.length = decoded_length;
+            }
+            if (result == WSH_OK) {
+                result = wsh_value_builder_append(output, captured);
+            }
+            wsh_windows_release(runtime, decoded);
         }
     }
     if (result != WSH_OK && group != NULL &&
@@ -4029,7 +4180,9 @@ static wsh_result wsh_windows_launch_plan(
         wsh_windows_group_force(
             runtime, group, WSH_WINDOWS_LAUNCH_STATUS);
     }
-    wsh_windows_release(runtime, capture.bytes);
+    for (index = 0U; index < 2U; ++index) {
+        wsh_windows_release(runtime, captures[index].bytes);
+    }
     wsh_windows_group_destroy(runtime, group);
     for (index = 0U; index < plan->command_count; ++index) {
         wsh_windows_stage_destroy(runtime, &stages[index]);
@@ -4556,6 +4709,4781 @@ static wsh_result wsh_windows_cancel_background(
     return result;
 }
 
+/** Return one borrowed library argument. */
+static int wsh_windows_library_argument(
+    const wsh_value *arguments,
+    size_t index,
+    wsh_string_view *out_argument)
+{
+    return arguments != NULL && out_argument != NULL &&
+        wsh_value_at(arguments, index, out_argument) == WSH_OK;
+}
+
+/** Return whether one library argument equals an ASCII option. */
+static int wsh_windows_library_argument_is(
+    const wsh_value *arguments,
+    size_t index,
+    const char *text)
+{
+    wsh_string_view argument;
+
+    return wsh_windows_library_argument(arguments, index, &argument) &&
+        wsh_string_view_equal(
+            argument, wsh_string_view_from_cstr(text));
+}
+
+/** Append one UTF-8 library result. */
+static wsh_result wsh_windows_library_append(
+    wsh_value_builder *output,
+    const char *bytes,
+    size_t length)
+{
+    wsh_string_view value;
+
+    value.data = bytes;
+    value.length = length;
+    return wsh_value_builder_append(output, value);
+}
+
+/** Append one successful library status. */
+static wsh_result wsh_windows_library_success(wsh_status_builder *status)
+{
+    return wsh_windows_append_status(status, 0U);
+}
+
+/** Append one ordinary false/failure library status. */
+static wsh_result wsh_windows_library_false(wsh_status_builder *status)
+{
+    return wsh_windows_append_status(status, 1U);
+}
+
+/** Parse one bounded unsigned decimal library operand. */
+static int wsh_windows_library_u32(
+    wsh_string_view text,
+    uint32_t *out_value)
+{
+    uint32_t value;
+    uint32_t digit;
+    size_t index;
+
+    if (out_value == NULL || text.length == 0U) {
+        return 0;
+    }
+    value = 0U;
+    for (index = 0U; index < text.length; ++index) {
+        if (text.data[index] < '0' || text.data[index] > '9') {
+            return 0;
+        }
+        digit = (uint32_t)(text.data[index] - '0');
+        if (value > (UINT32_MAX - digit) / 10U) {
+            return 0;
+        }
+        value = value * 10U + digit;
+    }
+    *out_value = value;
+    return 1;
+}
+
+/** Describe or enumerate the immutable embedded registry. */
+static wsh_result wsh_windows_library_registry(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    const wsh_library_descriptor *descriptor;
+    wsh_string_view name;
+    size_t index;
+    wsh_result result;
+
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("library::list"))) {
+        if (wsh_value_count(request->arguments) != 0U) {
+            return WSH_ERR_INVALID;
+        }
+        result = WSH_OK;
+        for (index = 0U; result == WSH_OK &&
+             index < wsh_library_descriptor_count(); ++index) {
+            descriptor = wsh_library_descriptor_at(index);
+            result = wsh_value_builder_append(
+                output, wsh_string_view_from_cstr(descriptor->name));
+        }
+        return result == WSH_OK ?
+            wsh_windows_library_success(status) : result;
+    }
+    if (!wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("library::describe")) ||
+        wsh_value_count(request->arguments) != 1U ||
+        !wsh_windows_library_argument(request->arguments, 0U, &name)) {
+        return WSH_ERR_INVALID;
+    }
+    descriptor = wsh_library_find(name);
+    if (descriptor == NULL) {
+        return wsh_windows_library_false(status);
+    }
+    result = wsh_windows_library_append_field(
+        runtime, output, "name", descriptor->name);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "version", WSH_VERSION);
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "signature", descriptor->signature);
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "summary", descriptor->summary);
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime,
+            output,
+            "result-mode",
+            (descriptor->flags & WSH_LIBRARY_REQUIRES_INTO) != 0U ?
+                "into-required" :
+            (descriptor->flags & WSH_LIBRARY_ACCEPTS_INTO) != 0U ?
+                "into-optional" : "status-or-records");
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime,
+            output,
+            "status",
+            "0=success;1=false-or-operation-failure");
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime,
+            output,
+            "policy",
+            strcmp(descriptor->name, "fs::remove") == 0 ?
+                "protected recursive roots require explicit authorization" :
+            strcmp(descriptor->name, "process::raw") == 0 ?
+                "raw launch requires host policy authorization" :
+                "bounded embedded operation");
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute text::join. */
+static wsh_result wsh_windows_library_text_join(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_builder *builder;
+    wsh_string *joined;
+    wsh_string_view separator;
+    wsh_string_view item;
+    size_t index;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) < 2U ||
+        !wsh_windows_library_argument_is(arguments, 0U, "--separator") ||
+        !wsh_windows_library_argument(arguments, 1U, &separator)) {
+        return WSH_ERR_INVALID;
+    }
+    builder = NULL;
+    result = wsh_string_builder_create(
+        &runtime->options.allocator, &runtime->options.limits, &builder);
+    for (index = 2U; result == WSH_OK &&
+         index < wsh_value_count(arguments); ++index) {
+        if (index != 2U) {
+            result = wsh_string_builder_append(builder, separator);
+        }
+        if (result == WSH_OK &&
+            wsh_windows_library_argument(arguments, index, &item)) {
+            result = wsh_string_builder_append(builder, item);
+        }
+    }
+    joined = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, &joined);
+    }
+    wsh_string_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(output, wsh_string_bytes(joined));
+    }
+    wsh_string_destroy(joined);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute text::split. */
+static wsh_result wsh_windows_library_text_split(
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view separator;
+    wsh_string_view value;
+    wsh_string_view part;
+    size_t value_index;
+    size_t start;
+    size_t index;
+    int keep_empty;
+    int found;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) < 3U ||
+        !wsh_windows_library_argument_is(arguments, 0U, "--separator") ||
+        !wsh_windows_library_argument(arguments, 1U, &separator) ||
+        separator.length == 0U) {
+        return WSH_ERR_INVALID;
+    }
+    keep_empty = wsh_windows_library_argument_is(
+        arguments, 2U, "--keep-empty");
+    value_index = keep_empty ? 3U : 2U;
+    if (value_index + 1U != wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, value_index, &value)) {
+        return WSH_ERR_INVALID;
+    }
+    result = WSH_OK;
+    start = 0U;
+    do {
+        found = 0;
+        index = start;
+        while (index + separator.length <= value.length) {
+            if (memcmp(
+                    value.data + index,
+                    separator.data,
+                    separator.length) == 0) {
+                found = 1;
+                break;
+            }
+            index += 1U;
+        }
+        if (!found) {
+            index = value.length;
+        }
+        part.data = value.data + start;
+        part.length = index - start;
+        if (keep_empty || part.length != 0U) {
+            result = wsh_value_builder_append(output, part);
+        }
+        start = found ? index + separator.length : value.length + 1U;
+    } while (result == WSH_OK && found);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute text::replace. */
+static wsh_result wsh_windows_library_text_replace(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view old_text;
+    wsh_string_view new_text;
+    wsh_string_view value;
+    wsh_string_view part;
+    wsh_string_builder *builder;
+    wsh_string *replaced;
+    size_t start;
+    size_t index;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 5U ||
+        !wsh_windows_library_argument_is(arguments, 0U, "--old") ||
+        !wsh_windows_library_argument(arguments, 1U, &old_text) ||
+        !wsh_windows_library_argument_is(arguments, 2U, "--new") ||
+        !wsh_windows_library_argument(arguments, 3U, &new_text) ||
+        !wsh_windows_library_argument(arguments, 4U, &value)) {
+        return WSH_ERR_INVALID;
+    }
+    if (old_text.length == 0U) {
+        return WSH_ERR_INVALID;
+    }
+    builder = NULL;
+    result = wsh_string_builder_create(
+        &runtime->options.allocator, &runtime->options.limits, &builder);
+    start = 0U;
+    index = 0U;
+    while (result == WSH_OK && index + old_text.length <= value.length) {
+        if (memcmp(
+                value.data + index,
+                old_text.data,
+                old_text.length) == 0) {
+            part.data = value.data + start;
+            part.length = index - start;
+            result = wsh_string_builder_append(builder, part);
+            if (result == WSH_OK) {
+                result = wsh_string_builder_append(builder, new_text);
+            }
+            index += old_text.length;
+            start = index;
+        } else {
+            index += 1U;
+        }
+    }
+    part.data = value.data + start;
+    part.length = value.length - start;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_append(builder, part);
+    }
+    replaced = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, &replaced);
+    }
+    wsh_string_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            output, wsh_string_bytes(replaced));
+    }
+    wsh_string_destroy(replaced);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute text::format with zero-based `{n}` placeholders. */
+static wsh_result wsh_windows_library_text_format(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view format;
+    wsh_string_view item;
+    wsh_string_view literal;
+    wsh_string_builder *builder;
+    wsh_string *rendered;
+    size_t index;
+    size_t start;
+    size_t number;
+    int digit;
+    wsh_result result;
+
+    if (!wsh_windows_library_argument(arguments, 0U, &format)) {
+        return WSH_ERR_INVALID;
+    }
+    builder = NULL;
+    result = wsh_string_builder_create(
+        &runtime->options.allocator, &runtime->options.limits, &builder);
+    index = 0U;
+    start = 0U;
+    while (result == WSH_OK && index < format.length) {
+        if (format.data[index] != '{') {
+            index += 1U;
+            continue;
+        }
+        literal.data = format.data + start;
+        literal.length = index - start;
+        result = wsh_string_builder_append(builder, literal);
+        index += 1U;
+        number = 0U;
+        digit = 0;
+        while (index < format.length && format.data[index] >= '0' &&
+            format.data[index] <= '9') {
+            digit = 1;
+            if (number > ((size_t)-1 - 9U) / 10U) {
+                result = WSH_ERR_RESOURCE;
+                break;
+            }
+            number = number * 10U +
+                (size_t)(format.data[index] - '0');
+            index += 1U;
+        }
+        if (result != WSH_OK || !digit || index >= format.length ||
+            format.data[index] != '}' ||
+            !wsh_windows_library_argument(arguments, number + 1U, &item)) {
+            result = WSH_ERR_INVALID;
+            break;
+        }
+        result = wsh_string_builder_append(builder, item);
+        index += 1U;
+        start = index;
+    }
+    literal.data = format.data + start;
+    literal.length = format.length - start;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_append(builder, literal);
+    }
+    rendered = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, &rendered);
+    }
+    wsh_string_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            output, wsh_string_bytes(rendered));
+    }
+    wsh_string_destroy(rendered);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Forward declaration for the filesystem-backed encoding command. */
+static wsh_result wsh_windows_library_text_encode(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status);
+
+/** Dispatch portable text namespace operations. */
+static wsh_result wsh_windows_library_text(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view left;
+    wsh_string_view right;
+    int equal;
+
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::join"))) {
+        return wsh_windows_library_text_join(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::split"))) {
+        return wsh_windows_library_text_split(
+            request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::replace"))) {
+        return wsh_windows_library_text_replace(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::format"))) {
+        return wsh_windows_library_text_format(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::encode"))) {
+        return wsh_windows_library_text_encode(
+            runtime, request->arguments, status);
+    }
+    if (!wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("text::compare"))) {
+        return WSH_ERR_INVALID;
+    }
+    if (wsh_value_count(request->arguments) == 2U &&
+        wsh_windows_library_argument(request->arguments, 0U, &left) &&
+        wsh_windows_library_argument(request->arguments, 1U, &right)) {
+        equal = wsh_string_view_equal(left, right);
+    } else if (wsh_value_count(request->arguments) == 3U &&
+        wsh_windows_library_argument_is(
+            request->arguments, 0U, "--ordinal-ignore-case") &&
+        wsh_windows_library_argument(request->arguments, 1U, &left) &&
+        wsh_windows_library_argument(request->arguments, 2U, &right)) {
+        equal = wsh_windows_names_equal((void *)runtime, left, right);
+    } else {
+        return WSH_ERR_INVALID;
+    }
+    return equal ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Normalize one UTF-8 path lexically with native separators. */
+static wsh_result wsh_windows_library_normalize_path(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    char **out_bytes,
+    size_t *out_length)
+{
+    char *bytes;
+    size_t *segments;
+    size_t segment_count;
+    size_t position;
+    size_t index;
+    size_t start;
+    size_t length;
+    size_t rollback;
+    size_t bytes_size;
+    size_t segment_bytes;
+    int rooted;
+
+    *out_bytes = NULL;
+    *out_length = 0U;
+    if (path.length > runtime->options.limits.max_string_bytes - 3U ||
+        !wsh_windows_multiply(path.length + 3U, sizeof(*bytes), &bytes_size) ||
+        !wsh_windows_multiply(
+            path.length + 1U, sizeof(*segments), &segment_bytes)) {
+        return WSH_ERR_RESOURCE;
+    }
+    bytes = (char *)wsh_windows_allocate(runtime, bytes_size);
+    segments = (size_t *)wsh_windows_allocate(runtime, segment_bytes);
+    if (bytes == NULL || segments == NULL) {
+        wsh_windows_release(runtime, bytes);
+        wsh_windows_release(runtime, segments);
+        return WSH_ERR_RESOURCE;
+    }
+    position = 0U;
+    index = 0U;
+    segment_count = 0U;
+    rooted = 0;
+    if (path.length >= 4U &&
+        (path.data[0] == '\\' || path.data[0] == '/') &&
+        (path.data[1] == '\\' || path.data[1] == '/') &&
+        (path.data[2] == '?' || path.data[2] == '.') &&
+        (path.data[3] == '\\' || path.data[3] == '/')) {
+        bytes[position++] = '\\';
+        bytes[position++] = '\\';
+        bytes[position++] = path.data[2];
+        bytes[position++] = '\\';
+        index = 4U;
+        rooted = 1;
+    } else if (path.length >= 2U &&
+        (path.data[0] == '\\' || path.data[0] == '/') &&
+        (path.data[1] == '\\' || path.data[1] == '/')) {
+        bytes[position++] = '\\';
+        bytes[position++] = '\\';
+        index = 2U;
+        rooted = 1;
+    } else if (path.length >= 2U && path.data[1] == ':') {
+        bytes[position++] = path.data[0];
+        bytes[position++] = ':';
+        index = 2U;
+        if (index < path.length &&
+            (path.data[index] == '\\' || path.data[index] == '/')) {
+            bytes[position++] = '\\';
+            rooted = 1;
+            index += 1U;
+        }
+    } else if (path.length != 0U &&
+        (path.data[0] == '\\' || path.data[0] == '/')) {
+        bytes[position++] = '\\';
+        rooted = 1;
+        index = 1U;
+    }
+    while (index <= path.length) {
+        while (index < path.length &&
+            (path.data[index] == '\\' || path.data[index] == '/')) {
+            index += 1U;
+        }
+        start = index;
+        while (index < path.length &&
+            path.data[index] != '\\' && path.data[index] != '/') {
+            index += 1U;
+        }
+        length = index - start;
+        if (length == 0U) {
+            break;
+        }
+        if (length == 1U && path.data[start] == '.') {
+            continue;
+        }
+        if (length == 2U && path.data[start] == '.' &&
+            path.data[start + 1U] == '.') {
+            if (segment_count != 0U) {
+                position = segments[--segment_count];
+                continue;
+            }
+            if (rooted) {
+                continue;
+            }
+        }
+        rollback = position;
+        if (position != 0U && bytes[position - 1U] != '\\' &&
+            bytes[position - 1U] != ':') {
+            bytes[position++] = '\\';
+        }
+        segments[segment_count++] = rollback;
+        memcpy(bytes + position, path.data + start, length);
+        position += length;
+    }
+    if (position == 0U && path.length != 0U) {
+        bytes[position++] = '.';
+    }
+    bytes[position] = '\0';
+    wsh_windows_release(runtime, segments);
+    *out_bytes = bytes;
+    *out_length = position;
+    return WSH_OK;
+}
+
+/** Resolve and normalize one path against the logical directory. */
+static wsh_result wsh_windows_library_absolute_path(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    uint16_t **out_wide,
+    size_t *out_length)
+{
+    uint16_t *wide;
+    uint16_t *joined;
+    uint16_t *normalized;
+    size_t wide_length;
+    size_t joined_length;
+    size_t bytes;
+    DWORD required;
+    DWORD received;
+    wsh_result result;
+
+    wide = NULL;
+    joined = NULL;
+    normalized = NULL;
+    result = wsh_windows_to_wide(runtime, path, &wide, &wide_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_absolute_candidate(
+            runtime, wide, wide_length, &joined, &joined_length);
+    }
+    required = 0U;
+    if (result == WSH_OK) {
+        required = GetFullPathNameW((LPCWSTR)joined, 0U, NULL, NULL);
+        if (required == 0U ||
+            !wsh_windows_multiply(required, sizeof(*normalized), &bytes)) {
+            result = WSH_ERR_MISMATCH;
+        }
+    }
+    if (result == WSH_OK) {
+        normalized = (uint16_t *)wsh_windows_allocate(runtime, bytes);
+        if (normalized == NULL) {
+            result = WSH_ERR_RESOURCE;
+        }
+    }
+    if (result == WSH_OK) {
+        received = GetFullPathNameW(
+            (LPCWSTR)joined, required, (LPWSTR)normalized, NULL);
+        if (received == 0U || received >= required) {
+            result = WSH_ERR_MISMATCH;
+        } else {
+            *out_wide = normalized;
+            *out_length = received;
+            normalized = NULL;
+        }
+    }
+    wsh_windows_release(runtime, normalized);
+    wsh_windows_release(runtime, joined);
+    wsh_windows_release(runtime, wide);
+    return result;
+}
+
+/** Append a converted UTF-16 path result. */
+static wsh_result wsh_windows_library_append_wide(
+    const wsh_windows_runtime *runtime,
+    wsh_value_builder *output,
+    const uint16_t *wide,
+    size_t wide_length)
+{
+    char *bytes;
+    size_t length;
+    wsh_result result;
+
+    bytes = NULL;
+    result = wsh_windows_from_wide(
+        runtime, wide, wide_length, &bytes, &length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append(output, bytes, length);
+    }
+    wsh_windows_release(runtime, bytes);
+    return result;
+}
+
+/** Return the final separator position, or path length when absent. */
+static size_t wsh_windows_library_last_separator(wsh_string_view path)
+{
+    size_t index;
+
+    index = path.length;
+    while (index != 0U) {
+        index -= 1U;
+        if (path.data[index] == '\\' || path.data[index] == '/') {
+            return index;
+        }
+    }
+    return path.length;
+}
+
+/** Execute lexical path component queries. */
+static wsh_result wsh_windows_library_path_component(
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view path;
+    wsh_string_view extension;
+    wsh_string_view result_view;
+    wsh_string_builder *builder;
+    wsh_string *changed;
+    size_t separator;
+    size_t dot;
+    size_t index;
+    wsh_result result;
+
+    if (!wsh_windows_library_argument(request->arguments, 0U, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    separator = wsh_windows_library_last_separator(path);
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::directory"))) {
+        result_view.data = path.data;
+        result_view.length = separator == path.length ? 0U :
+            separator == 2U && path.length >= 3U && path.data[1] == ':' ?
+                3U : separator;
+        result = wsh_value_builder_append(output, result_view);
+    } else if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::name"))) {
+        result_view.data = separator == path.length ? path.data :
+            path.data + separator + 1U;
+        result_view.length = separator == path.length ? path.length :
+            path.length - separator - 1U;
+        result = wsh_value_builder_append(output, result_view);
+    } else {
+        dot = path.length;
+        for (index = path.length; index != 0U; ) {
+            index -= 1U;
+            if (path.data[index] == '.') {
+                dot = index;
+                break;
+            }
+            if (path.data[index] == '\\' || path.data[index] == '/') {
+                break;
+            }
+        }
+        if (wsh_string_view_equal(
+                request->subject,
+                wsh_string_view_from_cstr("path::extension"))) {
+            result_view.data = dot == path.length ? path.data + path.length :
+                path.data + dot;
+            result_view.length = dot == path.length ? 0U : path.length - dot;
+            result = wsh_value_builder_append(output, result_view);
+        } else if (wsh_string_view_equal(
+                request->subject,
+                wsh_string_view_from_cstr("path::change-extension")) &&
+            wsh_value_count(request->arguments) == 2U &&
+            wsh_windows_library_argument(
+                request->arguments, 1U, &extension)) {
+            builder = NULL;
+            result = wsh_string_builder_create(NULL, NULL, &builder);
+            result_view.data = path.data;
+            result_view.length = dot == path.length ? path.length : dot;
+            if (result == WSH_OK) {
+                result = wsh_string_builder_append(builder, result_view);
+            }
+            if (result == WSH_OK && extension.length != 0U &&
+                extension.data[0] != '.') {
+                result = wsh_string_builder_append(
+                    builder, wsh_string_view_from_cstr("."));
+            }
+            if (result == WSH_OK) {
+                result = wsh_string_builder_append(builder, extension);
+            }
+            changed = NULL;
+            if (result == WSH_OK) {
+                result = wsh_string_builder_finish(builder, &changed);
+            }
+            wsh_string_builder_destroy(builder);
+            if (result == WSH_OK) {
+                result = wsh_value_builder_append(
+                    output, wsh_string_bytes(changed));
+            }
+            wsh_string_destroy(changed);
+        } else {
+            return WSH_ERR_INVALID;
+        }
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Return whether a normalized UTF-16 path denotes a root. */
+static int wsh_windows_library_path_is_root_wide(
+    const uint16_t *path,
+    size_t length)
+{
+    size_t index;
+    size_t separators;
+
+    if (length == 3U && path[1] == (uint16_t)':' &&
+        wsh_windows_is_separator(path[2])) {
+        return 1;
+    }
+    if (length >= 4U && wsh_windows_is_separator(path[0]) &&
+        wsh_windows_is_separator(path[1])) {
+        separators = 0U;
+        for (index = 2U; index < length; ++index) {
+            if (wsh_windows_is_separator(path[index])) {
+                separators += 1U;
+                while (index + 1U < length &&
+                    wsh_windows_is_separator(path[index + 1U])) {
+                    index += 1U;
+                }
+            }
+        }
+        return separators == 1U ||
+            (separators == 2U && wsh_windows_is_separator(path[length - 1U]));
+    }
+    return 0;
+}
+
+/** Return the absolute Windows root prefix length, or zero when malformed. */
+static size_t wsh_windows_library_path_root_length(
+    const uint16_t *path,
+    size_t length)
+{
+    size_t index;
+    size_t component;
+    size_t start;
+
+    if (length >= 3U && path[1] == (uint16_t)':' &&
+        wsh_windows_is_separator(path[2])) {
+        return 3U;
+    }
+    if (length < 5U || !wsh_windows_is_separator(path[0]) ||
+        !wsh_windows_is_separator(path[1])) {
+        return 0U;
+    }
+    index = 2U;
+    for (component = 0U; component < 2U; ++component) {
+        start = index;
+        while (index < length && !wsh_windows_is_separator(path[index])) {
+            index += 1U;
+        }
+        if (index == start || index == length) {
+            return component == 1U ? length : 0U;
+        }
+        while (index < length && wsh_windows_is_separator(path[index])) {
+            index += 1U;
+        }
+    }
+    return index;
+}
+
+/** Return whether candidate is equal to or below base. */
+static int wsh_windows_library_path_within_wide(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *base,
+    size_t base_length,
+    const uint16_t *candidate,
+    size_t candidate_length)
+{
+    while (base_length > 3U &&
+        wsh_windows_is_separator(base[base_length - 1U])) {
+        base_length -= 1U;
+    }
+    while (candidate_length > 3U &&
+        wsh_windows_is_separator(candidate[candidate_length - 1U])) {
+        candidate_length -= 1U;
+    }
+    if (candidate_length < base_length ||
+        wsh_windows_compare_names(
+            runtime, base, base_length, candidate, base_length) != 0) {
+        return 0;
+    }
+    return candidate_length == base_length ||
+        wsh_windows_is_separator(candidate[base_length]);
+}
+
+/** Execute path::is-within. */
+static wsh_result wsh_windows_library_path_is_within(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view base_view;
+    wsh_string_view candidate_view;
+    uint16_t *base;
+    uint16_t *candidate;
+    size_t base_length;
+    size_t candidate_length;
+    int within;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 2U ||
+        !wsh_windows_library_argument(arguments, 0U, &base_view) ||
+        !wsh_windows_library_argument(arguments, 1U, &candidate_view)) {
+        return WSH_ERR_INVALID;
+    }
+    base = NULL;
+    candidate = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, base_view, &base, &base_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_absolute_path(
+            runtime, candidate_view, &candidate, &candidate_length);
+    }
+    within = result == WSH_OK && wsh_windows_library_path_within_wide(
+        runtime, base, base_length, candidate, candidate_length);
+    wsh_windows_release(runtime, candidate);
+    wsh_windows_release(runtime, base);
+    if (result != WSH_OK) {
+        return result;
+    }
+    return within ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute path::relative for compatible absolute roots. */
+static wsh_result wsh_windows_library_path_relative(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view base_view;
+    wsh_string_view target_view;
+    uint16_t *base;
+    uint16_t *target;
+    size_t base_length;
+    size_t target_length;
+    size_t base_root;
+    size_t target_root;
+    size_t base_at;
+    size_t target_at;
+    size_t base_end;
+    size_t target_end;
+    size_t common_base;
+    size_t common_target;
+    size_t remaining;
+    wsh_string_builder *builder;
+    wsh_string *relative;
+    char *tail;
+    size_t tail_length;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 2U ||
+        !wsh_windows_library_argument(arguments, 0U, &base_view) ||
+        !wsh_windows_library_argument(arguments, 1U, &target_view)) {
+        return WSH_ERR_INVALID;
+    }
+    base = NULL;
+    target = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, base_view, &base, &base_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_absolute_path(
+            runtime, target_view, &target, &target_length);
+    }
+    base_root = result == WSH_OK ?
+        wsh_windows_library_path_root_length(base, base_length) : 0U;
+    target_root = result == WSH_OK ?
+        wsh_windows_library_path_root_length(target, target_length) : 0U;
+    if (result == WSH_OK && (base_root == 0U || target_root == 0U ||
+        base_root != target_root || wsh_windows_compare_names(
+            runtime, base, base_root, target, target_root) != 0)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    base_at = base_root;
+    target_at = target_root;
+    common_base = base_at;
+    common_target = target_at;
+    while (result == WSH_OK && base_at < base_length &&
+        target_at < target_length) {
+        base_end = base_at;
+        while (base_end < base_length &&
+            !wsh_windows_is_separator(base[base_end])) {
+            base_end += 1U;
+        }
+        target_end = target_at;
+        while (target_end < target_length &&
+            !wsh_windows_is_separator(target[target_end])) {
+            target_end += 1U;
+        }
+        if (wsh_windows_compare_names(
+                runtime,
+                base + base_at,
+                base_end - base_at,
+                target + target_at,
+                target_end - target_at) != 0) {
+            break;
+        }
+        common_base = base_end;
+        common_target = target_end;
+        base_at = base_end;
+        target_at = target_end;
+        while (base_at < base_length &&
+            wsh_windows_is_separator(base[base_at])) {
+            base_at += 1U;
+        }
+        while (target_at < target_length &&
+            wsh_windows_is_separator(target[target_at])) {
+            target_at += 1U;
+        }
+        common_base = base_at;
+        common_target = target_at;
+    }
+    builder = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_create(
+            &runtime->options.allocator, &runtime->options.limits, &builder);
+    }
+    remaining = 0U;
+    base_at = common_base;
+    while (base_at < base_length) {
+        while (base_at < base_length &&
+            wsh_windows_is_separator(base[base_at])) {
+            base_at += 1U;
+        }
+        if (base_at >= base_length) {
+            break;
+        }
+        remaining += 1U;
+        while (base_at < base_length &&
+            !wsh_windows_is_separator(base[base_at])) {
+            base_at += 1U;
+        }
+    }
+    for (base_at = 0U; result == WSH_OK && base_at < remaining; ++base_at) {
+        if (base_at != 0U) {
+            result = wsh_string_builder_append(
+                builder, wsh_string_view_from_cstr("\\"));
+        }
+        if (result == WSH_OK) {
+            result = wsh_string_builder_append(
+                builder, wsh_string_view_from_cstr(".."));
+        }
+    }
+    while (common_target < target_length &&
+        wsh_windows_is_separator(target[common_target])) {
+        common_target += 1U;
+    }
+    tail = NULL;
+    tail_length = 0U;
+    if (result == WSH_OK && common_target < target_length) {
+        result = wsh_windows_from_wide(
+            runtime,
+            target + common_target,
+            target_length - common_target,
+            &tail,
+            &tail_length);
+    }
+    if (result == WSH_OK && tail_length != 0U) {
+        if (remaining != 0U) {
+            result = wsh_string_builder_append(
+                builder, wsh_string_view_from_cstr("\\"));
+        }
+        if (result == WSH_OK) {
+            target_view.data = tail;
+            target_view.length = tail_length;
+            result = wsh_string_builder_append(builder, target_view);
+        }
+    }
+    if (result == WSH_OK && remaining == 0U && tail_length == 0U) {
+        result = wsh_string_builder_append(
+            builder, wsh_string_view_from_cstr("."));
+    }
+    relative = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, &relative);
+    }
+    wsh_string_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(output, wsh_string_bytes(relative));
+    }
+    wsh_string_destroy(relative);
+    wsh_windows_release(runtime, tail);
+    wsh_windows_release(runtime, target);
+    wsh_windows_release(runtime, base);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute the path namespace. */
+static wsh_result wsh_windows_library_path(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view path;
+    wsh_string_view component;
+    wsh_string_builder *builder;
+    wsh_string *joined;
+    char *normalized;
+    size_t normalized_length;
+    uint16_t *absolute;
+    size_t absolute_length;
+    size_t index;
+    wsh_result result;
+    int need_separator;
+    int have_content;
+    int last_separator;
+
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::join"))) {
+        builder = NULL;
+        result = wsh_string_builder_create(
+            &runtime->options.allocator, &runtime->options.limits, &builder);
+        have_content = 0;
+        last_separator = 0;
+        for (index = 0U; result == WSH_OK &&
+             index < wsh_value_count(request->arguments); ++index) {
+            if (!wsh_windows_library_argument(
+                    request->arguments, index, &component)) {
+                result = WSH_ERR_INVALID;
+                break;
+            }
+            while (index != 0U && component.length != 0U &&
+                (component.data[0] == '\\' || component.data[0] == '/')) {
+                component.data += 1U;
+                component.length -= 1U;
+            }
+            need_separator = have_content && !last_separator &&
+                component.length != 0U;
+            if (need_separator) {
+                result = wsh_string_builder_append(
+                    builder, wsh_string_view_from_cstr("\\"));
+            }
+            if (result == WSH_OK && component.length != 0U) {
+                result = wsh_string_builder_append(builder, component);
+                have_content = 1;
+                last_separator =
+                    component.data[component.length - 1U] == '\\' ||
+                    component.data[component.length - 1U] == '/';
+            }
+        }
+        joined = NULL;
+        if (result == WSH_OK) {
+            result = wsh_string_builder_finish(builder, &joined);
+        }
+        wsh_string_builder_destroy(builder);
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(
+                output, wsh_string_bytes(joined));
+        }
+        wsh_string_destroy(joined);
+        return result == WSH_OK ? wsh_windows_library_success(status) : result;
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::relative"))) {
+        return wsh_windows_library_path_relative(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::is-within"))) {
+        return wsh_windows_library_path_is_within(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::directory")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::name")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::extension")) ||
+        wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("path::change-extension"))) {
+        return wsh_windows_library_path_component(request, output, status);
+    }
+    if (!wsh_windows_library_argument(request->arguments, 0U, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::normalize"))) {
+        normalized = NULL;
+        result = wsh_windows_library_normalize_path(
+            runtime, path, &normalized, &normalized_length);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_append(
+                output, normalized, normalized_length);
+        }
+        wsh_windows_release(runtime, normalized);
+        return result == WSH_OK ? wsh_windows_library_success(status) : result;
+    }
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result != WSH_OK) {
+        return result;
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::absolute"))) {
+        result = wsh_windows_library_append_wide(
+            runtime, output, absolute, absolute_length);
+        wsh_windows_release(runtime, absolute);
+        return result == WSH_OK ? wsh_windows_library_success(status) : result;
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("path::is-root"))) {
+        index = wsh_windows_library_path_is_root_wide(
+            absolute, absolute_length) ? 0U : 1U;
+        wsh_windows_release(runtime, absolute);
+        return index == 0U ? wsh_windows_library_success(status) :
+            wsh_windows_library_false(status);
+    }
+    wsh_windows_release(runtime, absolute);
+    return WSH_ERR_INVALID;
+}
+
+/** Return stable library type text for Win32 attributes. */
+static const char *wsh_windows_library_type_name(DWORD attributes)
+{
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        return "missing";
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        return "reparse";
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        return "directory";
+    }
+    if ((attributes & FILE_ATTRIBUTE_DEVICE) != 0U) {
+        return "other";
+    }
+    return "file";
+}
+
+/** Read one regular file into a bounded runtime-owned byte buffer. */
+static wsh_result wsh_windows_library_read_bytes(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    unsigned char **out_bytes,
+    size_t *out_length)
+{
+    uint16_t *absolute;
+    size_t absolute_length;
+    uint64_t file_size;
+    unsigned char *bytes;
+    size_t offset;
+    DWORD received;
+    DWORD request;
+    DWORD low;
+    DWORD high;
+    HANDLE file;
+    wsh_result result;
+
+    *out_bytes = NULL;
+    *out_length = 0U;
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    file = INVALID_HANDLE_VALUE;
+    if (result == WSH_OK) {
+        file = CreateFileW(
+            (LPCWSTR)absolute,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL);
+        if (file == INVALID_HANDLE_VALUE) {
+            result = WSH_ERR_MISMATCH;
+        }
+    }
+    file_size = 0U;
+    if (result == WSH_OK) {
+        high = 0U;
+        SetLastError(NO_ERROR);
+        low = GetFileSize(file, &high);
+        if (low == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) {
+            result = WSH_ERR_INTERNAL;
+        } else {
+            file_size = ((uint64_t)high << 32U) | low;
+            if (file_size >
+                (uint64_t)runtime->options.max_capture_bytes) {
+                result = WSH_ERR_RESOURCE;
+            }
+        }
+    }
+    bytes = NULL;
+    if (result == WSH_OK) {
+        bytes = (unsigned char *)wsh_windows_allocate(
+            runtime, (size_t)file_size + 1U);
+        if (bytes == NULL) {
+            result = WSH_ERR_RESOURCE;
+        }
+    }
+    offset = 0U;
+    while (result == WSH_OK && offset < (size_t)file_size) {
+        request = (size_t)file_size - offset > 0xffffffffUL ?
+            0xffffffffUL : (DWORD)((size_t)file_size - offset);
+        received = 0U;
+        if (!ReadFile(file, bytes + offset, request, &received, NULL) ||
+            received == 0U) {
+            result = WSH_ERR_INTERNAL;
+        } else {
+            offset += received;
+        }
+    }
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+    wsh_windows_release(runtime, absolute);
+    if (result == WSH_OK) {
+        bytes[offset] = 0U;
+        *out_bytes = bytes;
+        *out_length = offset;
+    } else {
+        wsh_windows_release(runtime, bytes);
+    }
+    return result;
+}
+
+/** Write all bytes to one already opened file handle. */
+static wsh_result wsh_windows_library_write_all(
+    HANDLE file,
+    const unsigned char *bytes,
+    size_t length)
+{
+    size_t offset;
+    DWORD request;
+    DWORD written;
+
+    offset = 0U;
+    while (offset < length) {
+        request = length - offset > 0xffffffffUL ?
+            0xffffffffUL : (DWORD)(length - offset);
+        written = 0U;
+        if (!WriteFile(file, bytes + offset, request, &written, NULL) ||
+            written == 0U) {
+            return WSH_ERR_INTERNAL;
+        }
+        offset += written;
+    }
+    return WSH_OK;
+}
+
+/** Compare two absolute paths by Windows ordinal identity. */
+static int wsh_windows_library_paths_equal(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *left,
+    size_t left_length,
+    const uint16_t *right,
+    size_t right_length)
+{
+    return wsh_windows_compare_names(
+        runtime, left, left_length, right, right_length) == 0;
+}
+
+/** Return the directory portion of the runtime executable path. */
+static size_t wsh_windows_library_executable_directory_length(
+    const wsh_windows_runtime *runtime)
+{
+    size_t length;
+
+    length = runtime->executable_path_length;
+    while (length != 0U) {
+        length -= 1U;
+        if (wsh_windows_is_separator(runtime->executable_path[length])) {
+            return length;
+        }
+    }
+    return 0U;
+}
+
+/** Conservatively identify a volume, share, or device root. */
+static int wsh_windows_library_is_protected_root(
+    const uint16_t *path,
+    size_t length)
+{
+    size_t index;
+    size_t components;
+    int in_component;
+
+    if (wsh_windows_library_path_is_root_wide(path, length)) {
+        return 1;
+    }
+    if (length >= 4U && wsh_windows_is_separator(path[0]) &&
+        wsh_windows_is_separator(path[1]) &&
+        (path[2] == (uint16_t)'?' || path[2] == (uint16_t)'.') &&
+        wsh_windows_is_separator(path[3])) {
+        return 1;
+    }
+    if (length < 2U || !wsh_windows_is_separator(path[0]) ||
+        !wsh_windows_is_separator(path[1])) {
+        return 0;
+    }
+    components = 0U;
+    in_component = 0;
+    for (index = 2U; index < length; ++index) {
+        if (wsh_windows_is_separator(path[index])) {
+            if (in_component) {
+                components += 1U;
+                in_component = 0;
+            }
+        } else {
+            in_component = 1;
+        }
+    }
+    if (in_component) {
+        components += 1U;
+    }
+    return components <= 2U;
+}
+
+/** Return whether recursive removal must reject one resolved path. */
+static int wsh_windows_library_remove_protected(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *path,
+    size_t length)
+{
+    size_t executable_directory_length;
+
+    if (wsh_windows_library_is_protected_root(path, length) ||
+        wsh_windows_library_paths_equal(
+            runtime,
+            path,
+            length,
+            runtime->initial_directory,
+            runtime->initial_directory_length)) {
+        return 1;
+    }
+    executable_directory_length =
+        wsh_windows_library_executable_directory_length(runtime);
+    return executable_directory_length != 0U &&
+        wsh_windows_library_paths_equal(
+            runtime,
+            path,
+            length,
+            runtime->executable_path,
+            executable_directory_length);
+}
+
+/** Remove one path recursively without following directory reparse points. */
+static wsh_result wsh_windows_library_remove_tree(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *path,
+    size_t path_length,
+    int force)
+{
+    WIN32_FIND_DATAW data;
+    wsh_wide_buffer pattern;
+    wsh_wide_buffer child;
+    uint16_t *pattern_path;
+    uint16_t *child_path;
+    size_t pattern_length;
+    size_t child_length;
+    size_t name_length;
+    HANDLE find;
+    DWORD attributes;
+    wsh_result result;
+
+    attributes = GetFileAttributesW((LPCWSTR)path);
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        return force &&
+            (GetLastError() == ERROR_FILE_NOT_FOUND ||
+             GetLastError() == ERROR_PATH_NOT_FOUND) ?
+            WSH_OK : WSH_ERR_MISMATCH;
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+        if (force && (attributes & FILE_ATTRIBUTE_READONLY) != 0U) {
+            (void)SetFileAttributesW(
+                (LPCWSTR)path, attributes & ~FILE_ATTRIBUTE_READONLY);
+        }
+        return DeleteFileW((LPCWSTR)path) ? WSH_OK : WSH_ERR_MISMATCH;
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        return RemoveDirectoryW((LPCWSTR)path) ? WSH_OK : WSH_ERR_MISMATCH;
+    }
+    wsh_wide_buffer_init(
+        runtime, &pattern, runtime->options.limits.max_string_bytes);
+    result = wsh_wide_buffer_append(&pattern, path, path_length);
+    if (result == WSH_OK && path_length != 0U &&
+        !wsh_windows_is_separator(path[path_length - 1U])) {
+        result = wsh_wide_buffer_repeat(&pattern, (uint16_t)'\\', 1U);
+    }
+    if (result == WSH_OK) {
+        result = wsh_wide_buffer_repeat(&pattern, (uint16_t)'*', 1U);
+    }
+    pattern_path = NULL;
+    if (result == WSH_OK) {
+        result = wsh_wide_buffer_finish(
+            &pattern, &pattern_path, &pattern_length);
+    }
+    wsh_wide_buffer_destroy(&pattern);
+    find = result == WSH_OK ?
+        FindFirstFileW((LPCWSTR)pattern_path, &data) : INVALID_HANDLE_VALUE;
+    if (result == WSH_OK && find == INVALID_HANDLE_VALUE &&
+        GetLastError() != ERROR_FILE_NOT_FOUND) {
+        result = WSH_ERR_MISMATCH;
+    }
+    while (result == WSH_OK && find != INVALID_HANDLE_VALUE) {
+        name_length = 0U;
+        while (data.cFileName[name_length] != 0U) {
+            name_length += 1U;
+        }
+        if ((name_length == 1U && data.cFileName[0] == L'.') ||
+            (name_length == 2U && data.cFileName[0] == L'.' &&
+             data.cFileName[1] == L'.')) {
+            if (!FindNextFileW(find, &data)) {
+                if (GetLastError() != ERROR_NO_MORE_FILES) {
+                    result = WSH_ERR_INTERNAL;
+                }
+                break;
+            }
+            continue;
+        }
+        wsh_wide_buffer_init(
+            runtime, &child, runtime->options.limits.max_string_bytes);
+        result = wsh_wide_buffer_append(&child, path, path_length);
+        if (result == WSH_OK && path_length != 0U &&
+            !wsh_windows_is_separator(path[path_length - 1U])) {
+            result = wsh_wide_buffer_repeat(&child, (uint16_t)'\\', 1U);
+        }
+        if (result == WSH_OK) {
+            result = wsh_wide_buffer_append(
+                &child, (const uint16_t *)data.cFileName, name_length);
+        }
+        child_path = NULL;
+        if (result == WSH_OK) {
+            result = wsh_wide_buffer_finish(
+                &child, &child_path, &child_length);
+        }
+        wsh_wide_buffer_destroy(&child);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_remove_tree(
+                runtime, child_path, child_length, force);
+        }
+        wsh_windows_release(runtime, child_path);
+        if (result == WSH_OK && !FindNextFileW(find, &data)) {
+            if (GetLastError() != ERROR_NO_MORE_FILES) {
+                result = WSH_ERR_INTERNAL;
+            }
+            break;
+        }
+    }
+    if (find != INVALID_HANDLE_VALUE) {
+        FindClose(find);
+    }
+    wsh_windows_release(runtime, pattern_path);
+    if (result == WSH_OK && !RemoveDirectoryW((LPCWSTR)path)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    return result;
+}
+
+/** Execute fs::exists or fs::type. */
+static wsh_result wsh_windows_library_fs_type(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view path;
+    uint16_t *absolute;
+    size_t absolute_length;
+    DWORD attributes;
+    const char *type;
+    wsh_result result;
+
+    if (wsh_value_count(request->arguments) != 1U ||
+        !wsh_windows_library_argument(request->arguments, 0U, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    attributes = result == WSH_OK ?
+        GetFileAttributesW((LPCWSTR)absolute) : INVALID_FILE_ATTRIBUTES;
+    if (result == WSH_OK && wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::exists"))) {
+        wsh_windows_release(runtime, absolute);
+        return attributes == INVALID_FILE_ATTRIBUTES ?
+            wsh_windows_library_false(status) :
+            wsh_windows_library_success(status);
+    }
+    type = wsh_windows_library_type_name(attributes);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(
+            output, wsh_string_view_from_cstr(type));
+    }
+    wsh_windows_release(runtime, absolute);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Format one UTC FILETIME as a stable RFC 3339 value. */
+static int wsh_windows_library_format_file_time(
+    const FILETIME *file_time,
+    char *buffer,
+    size_t capacity)
+{
+    SYSTEMTIME system_time;
+    ULARGE_INTEGER ticks;
+    unsigned fraction;
+    int written;
+
+    if (!FileTimeToSystemTime(file_time, &system_time)) {
+        return 0;
+    }
+    ticks.LowPart = file_time->dwLowDateTime;
+    ticks.HighPart = file_time->dwHighDateTime;
+    fraction = (unsigned)(ticks.QuadPart % 10000000ULL);
+    written = snprintf(
+        buffer,
+        capacity,
+        "%04u-%02u-%02uT%02u:%02u:%02u.%07uZ",
+        (unsigned)system_time.wYear,
+        (unsigned)system_time.wMonth,
+        (unsigned)system_time.wDay,
+        (unsigned)system_time.wHour,
+        (unsigned)system_time.wMinute,
+        (unsigned)system_time.wSecond,
+        fraction);
+    return written > 0 && (size_t)written < capacity;
+}
+
+/** Append one `key=value` metadata field. */
+static wsh_result wsh_windows_library_append_field(
+    const wsh_windows_runtime *runtime,
+    wsh_value_builder *output,
+    const char *key,
+    const char *value)
+{
+    wsh_string_builder *builder;
+    wsh_string *field;
+    wsh_result result;
+
+    builder = NULL;
+    result = wsh_string_builder_create(
+        &runtime->options.allocator, &runtime->options.limits, &builder);
+    if (result == WSH_OK) {
+        result = wsh_string_builder_append(
+            builder, wsh_string_view_from_cstr(key));
+    }
+    if (result == WSH_OK) {
+        result = wsh_string_builder_append(
+            builder, wsh_string_view_from_cstr("="));
+    }
+    if (result == WSH_OK) {
+        result = wsh_string_builder_append(
+            builder, wsh_string_view_from_cstr(value));
+    }
+    field = NULL;
+    if (result == WSH_OK) {
+        result = wsh_string_builder_finish(builder, &field);
+    }
+    wsh_string_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(output, wsh_string_bytes(field));
+    }
+    wsh_string_destroy(field);
+    return result;
+}
+
+/** Execute fs::stat. */
+static wsh_result wsh_windows_library_fs_stat(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view path;
+    uint16_t *absolute;
+    size_t absolute_length;
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    uint64_t size;
+    char buffer[80];
+    int written;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 1U ||
+        !wsh_windows_library_argument(arguments, 0U, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    memset(&data, 0, sizeof(data));
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result == WSH_OK && !GetFileAttributesExW(
+            (LPCWSTR)absolute, GetFileExInfoStandard, &data)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime,
+            output,
+            "type",
+            wsh_windows_library_type_name(data.dwFileAttributes));
+    }
+    size = ((uint64_t)data.nFileSizeHigh << 32U) | data.nFileSizeLow;
+    written = snprintf(buffer, sizeof(buffer), "%llu",
+        (unsigned long long)size);
+    if (result == WSH_OK && (written <= 0 ||
+        (size_t)written >= sizeof(buffer))) {
+        result = WSH_ERR_INTERNAL;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "size", buffer);
+    }
+    written = snprintf(
+        buffer,
+        sizeof(buffer),
+        "0x%08lx",
+        (unsigned long)data.dwFileAttributes);
+    if (result == WSH_OK && (written <= 0 ||
+        (size_t)written >= sizeof(buffer))) {
+        result = WSH_ERR_INTERNAL;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "attributes", buffer);
+    }
+    if (result == WSH_OK && !wsh_windows_library_format_file_time(
+            &data.ftCreationTime, buffer, sizeof(buffer))) {
+        result = WSH_ERR_INTERNAL;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "created", buffer);
+    }
+    if (result == WSH_OK && !wsh_windows_library_format_file_time(
+            &data.ftLastAccessTime, buffer, sizeof(buffer))) {
+        result = WSH_ERR_INTERNAL;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "accessed", buffer);
+    }
+    if (result == WSH_OK && !wsh_windows_library_format_file_time(
+            &data.ftLastWriteTime, buffer, sizeof(buffer))) {
+        result = WSH_ERR_INTERNAL;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "modified", buffer);
+    }
+    wsh_windows_release(runtime, absolute);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Create one directory path, optionally creating parent components. */
+static wsh_result wsh_windows_library_mkdir_one(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    int parents)
+{
+    uint16_t *absolute;
+    size_t absolute_length;
+    size_t index;
+    DWORD error;
+    wsh_result result;
+
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result != WSH_OK) {
+        return result;
+    }
+    if (parents) {
+        for (index = wsh_windows_library_path_root_length(
+                 absolute, absolute_length);
+             index < absolute_length;
+             ++index) {
+            if (!wsh_windows_is_separator(absolute[index])) {
+                continue;
+            }
+            absolute[index] = 0U;
+            if (!CreateDirectoryW((LPCWSTR)absolute, NULL)) {
+                error = GetLastError();
+                if (error != ERROR_ALREADY_EXISTS) {
+                    result = WSH_ERR_MISMATCH;
+                }
+            }
+            absolute[index] = (uint16_t)'\\';
+            if (result != WSH_OK) {
+                break;
+            }
+        }
+    }
+    if (result == WSH_OK && !CreateDirectoryW((LPCWSTR)absolute, NULL)) {
+        error = GetLastError();
+        if (!parents || error != ERROR_ALREADY_EXISTS ||
+            (GetFileAttributesW((LPCWSTR)absolute) &
+             FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+            result = WSH_ERR_MISMATCH;
+        }
+    }
+    wsh_windows_release(runtime, absolute);
+    return result;
+}
+
+/** Execute fs::mkdir. */
+static wsh_result wsh_windows_library_fs_mkdir(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    size_t index;
+    wsh_string_view path;
+    int parents;
+    wsh_result result;
+
+    parents = wsh_windows_library_argument_is(arguments, 0U, "--parents");
+    index = parents ? 1U : 0U;
+    if (index >= wsh_value_count(arguments)) {
+        return WSH_ERR_INVALID;
+    }
+    result = WSH_OK;
+    for (; result == WSH_OK && index < wsh_value_count(arguments); ++index) {
+        if (!wsh_windows_library_argument(arguments, index, &path)) {
+            result = WSH_ERR_INVALID;
+        } else {
+            result = wsh_windows_library_mkdir_one(runtime, path, parents);
+        }
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute fs::remove with protected recursive targets. */
+static wsh_result wsh_windows_library_fs_remove(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    size_t index;
+    size_t target_count;
+    size_t prepared_count;
+    uint16_t **targets;
+    size_t *lengths;
+    wsh_string_view argument;
+    int force;
+    int recursive;
+    int allow_protected;
+    DWORD attributes;
+    wsh_result result;
+
+    force = 0;
+    recursive = 0;
+    allow_protected = 0;
+    index = 0U;
+    while (index < wsh_value_count(arguments)) {
+        if (wsh_windows_library_argument_is(arguments, index, "--force")) {
+            force = 1;
+        } else if (wsh_windows_library_argument_is(
+                arguments, index, "--recursive")) {
+            recursive = 1;
+        } else if (wsh_windows_library_argument_is(
+                arguments, index, "--allow-protected-root")) {
+            allow_protected = 1;
+        } else {
+            break;
+        }
+        index += 1U;
+    }
+    target_count = wsh_value_count(arguments) - index;
+    if (target_count == 0U ||
+        target_count > runtime->options.limits.max_list_items) {
+        return WSH_ERR_INVALID;
+    }
+    targets = (uint16_t **)wsh_windows_allocate(
+        runtime, target_count * sizeof(*targets));
+    lengths = (size_t *)wsh_windows_allocate(
+        runtime, target_count * sizeof(*lengths));
+    if (targets == NULL || lengths == NULL) {
+        wsh_windows_release(runtime, targets);
+        wsh_windows_release(runtime, lengths);
+        return WSH_ERR_RESOURCE;
+    }
+    result = WSH_OK;
+    prepared_count = 0U;
+    for (; result == WSH_OK && index < wsh_value_count(arguments); ++index) {
+        if (!wsh_windows_library_argument(arguments, index, &argument) ||
+            argument.length == 0U ||
+            (!allow_protected &&
+             ((argument.length == 1U && argument.data[0] == '.') ||
+              (argument.length == 2U && argument.data[0] == '.' &&
+               (argument.data[1] == '\\' || argument.data[1] == '/'))))) {
+            result = WSH_ERR_INVALID;
+            break;
+        }
+        targets[prepared_count] = NULL;
+        result = wsh_windows_library_absolute_path(
+            runtime,
+            argument,
+            &targets[prepared_count],
+            &lengths[prepared_count]);
+        if (targets[prepared_count] != NULL) {
+            prepared_count += 1U;
+        }
+        if (result == WSH_OK && recursive && !allow_protected &&
+            wsh_windows_library_remove_protected(
+                runtime,
+                targets[prepared_count - 1U],
+                lengths[prepared_count - 1U])) {
+            result = WSH_ERR_INVALID;
+        }
+    }
+    for (index = 0U; result == WSH_OK && index < prepared_count; ++index) {
+        attributes = GetFileAttributesW((LPCWSTR)targets[index]);
+        if (recursive) {
+            result = wsh_windows_library_remove_tree(
+                runtime, targets[index], lengths[index], force);
+        } else if (attributes == INVALID_FILE_ATTRIBUTES) {
+            result = force ? WSH_OK : WSH_ERR_MISMATCH;
+        } else if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+            result = RemoveDirectoryW((LPCWSTR)targets[index]) ?
+                WSH_OK : WSH_ERR_MISMATCH;
+        } else {
+            if (force && (attributes & FILE_ATTRIBUTE_READONLY) != 0U) {
+                (void)SetFileAttributesW(
+                    (LPCWSTR)targets[index],
+                    attributes & ~FILE_ATTRIBUTE_READONLY);
+            }
+            result = DeleteFileW((LPCWSTR)targets[index]) ?
+                WSH_OK : WSH_ERR_MISMATCH;
+        }
+    }
+    for (index = 0U; index < prepared_count; ++index) {
+        wsh_windows_release(runtime, targets[index]);
+    }
+    wsh_windows_release(runtime, targets);
+    wsh_windows_release(runtime, lengths);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Write exact library bytes through active command redirections. */
+static wsh_result wsh_windows_library_write_raw(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    const unsigned char *bytes,
+    size_t length)
+{
+    wsh_windows_stage stage;
+    const wsh_runtime_command *command;
+    wsh_result result;
+
+    memset(&stage, 0, sizeof(stage));
+    wsh_windows_stage_descriptors_init(runtime, &stage);
+    command = request->launch_plan != NULL &&
+        request->launch_plan->command_count == 1U ?
+        &request->launch_plan->commands[0] : NULL;
+    result = command == NULL ? WSH_OK :
+        wsh_windows_stage_apply_redirections(runtime, command, &stage);
+    if (result == WSH_OK && (stage.descriptors[1] == NULL ||
+        stage.descriptors[1] == INVALID_HANDLE_VALUE)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_write_all(
+            stage.descriptors[1], bytes, length);
+    }
+    wsh_windows_stage_destroy(runtime, &stage);
+    return result;
+}
+
+/** Execute fs::read with strict UTF encodings or exact bytes. */
+static wsh_result wsh_windows_library_fs_read(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view encoding;
+    wsh_string_view path;
+    unsigned char *bytes;
+    size_t length;
+    char *utf8;
+    size_t utf8_length;
+    uint16_t *wide;
+    size_t units;
+    size_t index;
+    int raw;
+    wsh_result result;
+
+    index = 0U;
+    raw = 0;
+    encoding = wsh_string_view_from_cstr("utf-8");
+    if (wsh_windows_library_argument_is(
+            request->arguments, index, "--bytes")) {
+        raw = 1;
+        index += 1U;
+    } else if (wsh_windows_library_argument_is(
+            request->arguments, index, "--encoding")) {
+        if (!wsh_windows_library_argument(
+                request->arguments, index + 1U, &encoding)) {
+            return WSH_ERR_INVALID;
+        }
+        index += 2U;
+    }
+    if (index + 1U != wsh_value_count(request->arguments) ||
+        !wsh_windows_library_argument(request->arguments, index, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    bytes = NULL;
+    result = wsh_windows_library_read_bytes(
+        runtime, path, &bytes, &length);
+    if (result != WSH_OK) {
+        return wsh_windows_library_false(status);
+    }
+    if (raw) {
+        result = wsh_windows_library_write_raw(
+            runtime, request, bytes, length);
+    } else if (wsh_string_view_equal(
+            encoding, wsh_string_view_from_cstr("utf-8"))) {
+        index = length >= 3U && bytes[0] == 0xefU &&
+            bytes[1] == 0xbbU && bytes[2] == 0xbfU ? 3U : 0U;
+        path.data = (const char *)bytes + index;
+        path.length = length - index;
+        result = wsh_utf8_validate(path, NULL);
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(output, path);
+        }
+    } else if ((wsh_string_view_equal(
+                   encoding, wsh_string_view_from_cstr("utf-16le")) ||
+                wsh_string_view_equal(
+                   encoding, wsh_string_view_from_cstr("utf-16be"))) &&
+        length % 2U == 0U) {
+        units = length / 2U;
+        wide = (uint16_t *)wsh_windows_allocate(
+            runtime, (units + 1U) * sizeof(*wide));
+        if (wide == NULL) {
+            result = WSH_ERR_RESOURCE;
+        } else {
+            for (index = 0U; index < units; ++index) {
+                if (wsh_string_view_equal(
+                        encoding,
+                        wsh_string_view_from_cstr("utf-16le"))) {
+                    wide[index] = (uint16_t)bytes[index * 2U] |
+                        ((uint16_t)bytes[index * 2U + 1U] << 8U);
+                } else {
+                    wide[index] = ((uint16_t)bytes[index * 2U] << 8U) |
+                        (uint16_t)bytes[index * 2U + 1U];
+                }
+            }
+            if (units != 0U && wide[0] == 0xfeffU) {
+                memmove(wide, wide + 1U, (units - 1U) * sizeof(*wide));
+                units -= 1U;
+            }
+            utf8 = NULL;
+            result = wsh_windows_from_wide(
+                runtime, wide, units, &utf8, &utf8_length);
+            if (result == WSH_OK) {
+                result = wsh_windows_library_append(
+                    output, utf8, utf8_length);
+            }
+            wsh_windows_release(runtime, utf8);
+            wsh_windows_release(runtime, wide);
+        }
+    } else {
+        result = WSH_ERR_INVALID;
+    }
+    wsh_windows_release(runtime, bytes);
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Execute fs::write for UTF-8 text or exact bytes from a file. */
+static wsh_result wsh_windows_library_fs_write(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view path;
+    wsh_string_view item;
+    wsh_string_view source;
+    uint16_t *absolute;
+    size_t absolute_length;
+    unsigned char *source_bytes;
+    size_t source_length;
+    size_t index;
+    int append;
+    HANDLE file;
+    DWORD disposition;
+    wsh_result result;
+
+    index = 0U;
+    append = 0;
+    if (wsh_windows_library_argument_is(arguments, index, "--append")) {
+        append = 1;
+        index += 1U;
+    }
+    source.data = NULL;
+    source.length = 0U;
+    if (wsh_windows_library_argument_is(arguments, index, "--bytes-from")) {
+        if (!wsh_windows_library_argument(arguments, index + 1U, &source)) {
+            return WSH_ERR_INVALID;
+        }
+        index += 2U;
+    } else if (wsh_windows_library_argument_is(
+            arguments, index, "--encoding")) {
+        if (!wsh_windows_library_argument(arguments, index + 1U, &item) ||
+            !wsh_string_view_equal(
+                item, wsh_string_view_from_cstr("utf-8"))) {
+            return WSH_ERR_INVALID;
+        }
+        index += 2U;
+    }
+    if (index >= wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, index, &path) ||
+        (source.data != NULL && index + 1U != wsh_value_count(arguments))) {
+        return WSH_ERR_INVALID;
+    }
+    index += 1U;
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    disposition = append ? OPEN_ALWAYS : CREATE_ALWAYS;
+    file = result == WSH_OK ? CreateFileW(
+        (LPCWSTR)absolute,
+        GENERIC_WRITE,
+        FILE_SHARE_READ,
+        NULL,
+        disposition,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL) : INVALID_HANDLE_VALUE;
+    if (result == WSH_OK && file == INVALID_HANDLE_VALUE) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK && append &&
+        SetFilePointer(file, 0L, NULL, FILE_END) == INVALID_SET_FILE_POINTER &&
+        GetLastError() != NO_ERROR) {
+        result = WSH_ERR_INTERNAL;
+    }
+    source_bytes = NULL;
+    source_length = 0U;
+    if (result == WSH_OK && source.data != NULL) {
+        result = wsh_windows_library_read_bytes(
+            runtime, source, &source_bytes, &source_length);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_write_all(
+                file, source_bytes, source_length);
+        }
+    }
+    while (result == WSH_OK && source.data == NULL &&
+        index < wsh_value_count(arguments)) {
+        if (!wsh_windows_library_argument(arguments, index, &item)) {
+            result = WSH_ERR_INVALID;
+        } else {
+            result = wsh_windows_library_write_all(
+                file, (const unsigned char *)item.data, item.length);
+        }
+        index += 1U;
+    }
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+    wsh_windows_release(runtime, source_bytes);
+    wsh_windows_release(runtime, absolute);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute explicit WSH-string encoding to a file. */
+static wsh_result wsh_windows_library_text_encode(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view from;
+    wsh_string_view to;
+    wsh_string_view path;
+    wsh_string_view value;
+    uint16_t *absolute;
+    size_t absolute_length;
+    uint16_t *wide;
+    size_t wide_length;
+    unsigned char *bytes;
+    size_t byte_length;
+    size_t index;
+    HANDLE file;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 7U ||
+        !wsh_windows_library_argument_is(arguments, 0U, "--from") ||
+        !wsh_windows_library_argument(arguments, 1U, &from) ||
+        !wsh_windows_library_argument_is(arguments, 2U, "--to") ||
+        !wsh_windows_library_argument(arguments, 3U, &to) ||
+        !wsh_windows_library_argument_is(arguments, 4U, "--output") ||
+        !wsh_windows_library_argument(arguments, 5U, &path) ||
+        !wsh_windows_library_argument(arguments, 6U, &value) ||
+        !wsh_string_view_equal(from, wsh_string_view_from_cstr("utf-8"))) {
+        return WSH_ERR_INVALID;
+    }
+    absolute = NULL;
+    wide = NULL;
+    bytes = NULL;
+    byte_length = 0U;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result == WSH_OK && wsh_string_view_equal(
+            to, wsh_string_view_from_cstr("utf-8"))) {
+        bytes = (unsigned char *)value.data;
+        byte_length = value.length;
+    } else if (result == WSH_OK &&
+        (wsh_string_view_equal(to, wsh_string_view_from_cstr("utf-16le")) ||
+         wsh_string_view_equal(to, wsh_string_view_from_cstr("utf-16be")))) {
+        result = wsh_windows_to_wide(runtime, value, &wide, &wide_length);
+        if (result == WSH_OK && !wsh_windows_multiply(
+                wide_length, 2U, &byte_length)) {
+            result = WSH_ERR_RESOURCE;
+        }
+        if (result == WSH_OK) {
+            bytes = (unsigned char *)wsh_windows_allocate(
+                runtime, byte_length == 0U ? 1U : byte_length);
+            if (bytes == NULL) {
+                result = WSH_ERR_RESOURCE;
+            }
+        }
+        for (index = 0U; result == WSH_OK && index < wide_length; ++index) {
+            if (wsh_string_view_equal(
+                    to, wsh_string_view_from_cstr("utf-16le"))) {
+                bytes[index * 2U] = (unsigned char)wide[index];
+                bytes[index * 2U + 1U] = (unsigned char)(wide[index] >> 8U);
+            } else {
+                bytes[index * 2U] = (unsigned char)(wide[index] >> 8U);
+                bytes[index * 2U + 1U] = (unsigned char)wide[index];
+            }
+        }
+    } else if (result == WSH_OK) {
+        result = WSH_ERR_INVALID;
+    }
+    file = result == WSH_OK ? CreateFileW(
+        (LPCWSTR)absolute,
+        GENERIC_WRITE,
+        FILE_SHARE_READ,
+        NULL,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL) : INVALID_HANDLE_VALUE;
+    if (result == WSH_OK && file == INVALID_HANDLE_VALUE) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_write_all(file, bytes, byte_length);
+    }
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+    if (bytes != (unsigned char *)value.data) {
+        wsh_windows_release(runtime, bytes);
+    }
+    wsh_windows_release(runtime, wide);
+    wsh_windows_release(runtime, absolute);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Hash one absolute regular-file path without buffering its contents. */
+static wsh_result wsh_windows_library_hash_wide(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *absolute,
+    unsigned char digest[32])
+{
+    HANDLE file;
+    DWORD attributes;
+    unsigned char buffer[65536];
+    DWORD received;
+    wsh_sha256 hash;
+    wsh_result result;
+
+    attributes = GetFileAttributesW((LPCWSTR)absolute);
+    result = WSH_OK;
+    if (attributes == INVALID_FILE_ATTRIBUTES ||
+        (attributes & (FILE_ATTRIBUTE_DIRECTORY |
+         FILE_ATTRIBUTE_REPARSE_POINT)) != 0U) {
+        result = WSH_ERR_MISMATCH;
+    }
+    file = result == WSH_OK ? CreateFileW(
+        (LPCWSTR)absolute,
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL) : INVALID_HANDLE_VALUE;
+    if (result == WSH_OK && file == INVALID_HANDLE_VALUE) {
+        result = WSH_ERR_MISMATCH;
+    }
+    wsh_sha256_initialize(&hash);
+    while (result == WSH_OK) {
+        received = 0U;
+        if (!ReadFile(file, buffer, sizeof(buffer), &received, NULL)) {
+            result = WSH_ERR_INTERNAL;
+            break;
+        }
+        if (received == 0U) {
+            break;
+        }
+        wsh_sha256_update(&hash, buffer, received);
+    }
+    if (result == WSH_OK) {
+        wsh_sha256_finish(&hash, digest);
+    } else {
+        memset(&hash, 0, sizeof(hash));
+    }
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+    return result;
+}
+
+/** Hash one regular file without buffering it in a WSH value. */
+static wsh_result wsh_windows_library_hash_file(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view path,
+    unsigned char digest[32])
+{
+    uint16_t *absolute;
+    size_t absolute_length;
+    wsh_result result;
+
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_hash_wide(runtime, absolute, digest);
+    }
+    wsh_windows_release(runtime, absolute);
+    return result;
+}
+
+/** Execute fs::hash. */
+static wsh_result wsh_windows_library_fs_hash(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    static const char digits[] = "0123456789abcdef";
+    wsh_string_view path;
+    unsigned char digest[32];
+    char hexadecimal[64];
+    size_t index;
+    wsh_result result;
+
+    if (wsh_value_count(arguments) != 2U ||
+        !wsh_windows_library_argument_is(arguments, 0U, "--sha256") ||
+        !wsh_windows_library_argument(arguments, 1U, &path)) {
+        return WSH_ERR_INVALID;
+    }
+    result = wsh_windows_library_hash_file(runtime, path, digest);
+    for (index = 0U; result == WSH_OK && index < sizeof(digest); ++index) {
+        hexadecimal[index * 2U] = digits[digest[index] >> 4U];
+        hexadecimal[index * 2U + 1U] = digits[digest[index] & 15U];
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append(
+            output, hexadecimal, sizeof(hexadecimal));
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Decode supported explicit text and normalize line endings to LF. */
+static wsh_result wsh_windows_library_decode_text(
+    const wsh_windows_runtime *runtime,
+    const unsigned char *bytes,
+    size_t length,
+    wsh_string_view encoding,
+    int normalize_lines,
+    char **out_text,
+    size_t *out_length)
+{
+    uint16_t *wide;
+    size_t units;
+    size_t index;
+    size_t start;
+    char *converted;
+    size_t converted_length;
+    char *normalized;
+    size_t written;
+    wsh_string_view view;
+    wsh_result result;
+
+    *out_text = NULL;
+    *out_length = 0U;
+    converted = NULL;
+    converted_length = 0U;
+    if (wsh_string_view_equal(
+            encoding, wsh_string_view_from_cstr("utf-8"))) {
+        start = length >= 3U && bytes[0] == 0xefU && bytes[1] == 0xbbU &&
+            bytes[2] == 0xbfU ? 3U : 0U;
+        view.data = (const char *)bytes + start;
+        view.length = length - start;
+        result = wsh_utf8_validate(view, NULL);
+        if (result == WSH_OK) {
+            converted = (char *)wsh_windows_allocate(runtime, view.length + 1U);
+            if (converted == NULL) {
+                result = WSH_ERR_RESOURCE;
+            } else {
+                memcpy(converted, view.data, view.length);
+                converted[view.length] = '\0';
+                converted_length = view.length;
+            }
+        }
+    } else if ((wsh_string_view_equal(
+                   encoding, wsh_string_view_from_cstr("utf-16le")) ||
+                wsh_string_view_equal(
+                   encoding, wsh_string_view_from_cstr("utf-16be"))) &&
+        length % 2U == 0U) {
+        units = length / 2U;
+        wide = (uint16_t *)wsh_windows_allocate(
+            runtime, (units + 1U) * sizeof(*wide));
+        if (wide == NULL) {
+            return WSH_ERR_RESOURCE;
+        }
+        for (index = 0U; index < units; ++index) {
+            if (wsh_string_view_equal(
+                    encoding, wsh_string_view_from_cstr("utf-16le"))) {
+                wide[index] = (uint16_t)bytes[index * 2U] |
+                    ((uint16_t)bytes[index * 2U + 1U] << 8U);
+            } else {
+                wide[index] = ((uint16_t)bytes[index * 2U] << 8U) |
+                    (uint16_t)bytes[index * 2U + 1U];
+            }
+        }
+        start = units != 0U && wide[0] == 0xfeffU ? 1U : 0U;
+        result = wsh_windows_from_wide(
+            runtime,
+            wide + start,
+            units - start,
+            &converted,
+            &converted_length);
+        wsh_windows_release(runtime, wide);
+    } else {
+        return WSH_ERR_INVALID;
+    }
+    if (result != WSH_OK) {
+        wsh_windows_release(runtime, converted);
+        return result;
+    }
+    if (!normalize_lines) {
+        *out_text = converted;
+        *out_length = converted_length;
+        return WSH_OK;
+    }
+    normalized = (char *)wsh_windows_allocate(runtime, converted_length + 1U);
+    if (normalized == NULL) {
+        wsh_windows_release(runtime, converted);
+        return WSH_ERR_RESOURCE;
+    }
+    written = 0U;
+    for (index = 0U; index < converted_length; ++index) {
+        if (converted[index] == '\r') {
+            if (index + 1U < converted_length &&
+                converted[index + 1U] == '\n') {
+                index += 1U;
+            }
+            normalized[written++] = '\n';
+        } else {
+            normalized[written++] = converted[index];
+        }
+    }
+    normalized[written] = '\0';
+    wsh_windows_release(runtime, converted);
+    *out_text = normalized;
+    *out_length = written;
+    return WSH_OK;
+}
+
+/** Execute fs::compare for exact bytes or explicit decoded text. */
+static wsh_result wsh_windows_library_fs_compare(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view encoding;
+    wsh_string_view left_path;
+    wsh_string_view right_path;
+    unsigned char *left;
+    unsigned char *right;
+    size_t left_length;
+    size_t right_length;
+    char *left_text;
+    char *right_text;
+    size_t left_text_length;
+    size_t right_text_length;
+    size_t index;
+    int equal;
+    wsh_result result;
+
+    index = 0U;
+    encoding.data = NULL;
+    encoding.length = 0U;
+    if (wsh_windows_library_argument_is(arguments, 0U, "--text")) {
+        if (!wsh_windows_library_argument(arguments, 1U, &encoding)) {
+            return WSH_ERR_INVALID;
+        }
+        index = 2U;
+    }
+    if (index + 2U != wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, index, &left_path) ||
+        !wsh_windows_library_argument(arguments, index + 1U, &right_path)) {
+        return WSH_ERR_INVALID;
+    }
+    left = NULL;
+    right = NULL;
+    result = wsh_windows_library_read_bytes(
+        runtime, left_path, &left, &left_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_read_bytes(
+            runtime, right_path, &right, &right_length);
+    }
+    equal = 0;
+    left_text = NULL;
+    right_text = NULL;
+    if (result == WSH_OK && encoding.data == NULL) {
+        equal = left_length == right_length &&
+            memcmp(left, right, left_length) == 0;
+    } else if (result == WSH_OK) {
+        result = wsh_windows_library_decode_text(
+            runtime,
+            left,
+            left_length,
+            encoding,
+            1,
+            &left_text,
+            &left_text_length);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_decode_text(
+                runtime,
+                right,
+                right_length,
+                encoding,
+                1,
+                &right_text,
+                &right_text_length);
+        }
+        equal = result == WSH_OK && left_text_length == right_text_length &&
+            memcmp(left_text, right_text, left_text_length) == 0;
+    }
+    wsh_windows_release(runtime, right_text);
+    wsh_windows_release(runtime, left_text);
+    wsh_windows_release(runtime, right);
+    wsh_windows_release(runtime, left);
+    if (result != WSH_OK) {
+        return wsh_windows_library_false(status);
+    }
+    return equal ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Append a fixed-width hexadecimal nonce to a wide path. */
+static size_t wsh_windows_library_append_nonce(
+    uint16_t *path,
+    size_t offset,
+    uint64_t nonce)
+{
+    static const uint16_t digits[] = L"0123456789abcdef";
+    size_t index;
+
+    for (index = 0U; index < 16U; ++index) {
+        path[offset + index] = digits[(nonce >> ((15U - index) * 4U)) & 15U];
+    }
+    return offset + 16U;
+}
+
+/** Execute exclusive temporary file/directory creation. */
+static wsh_result wsh_windows_library_fs_temp(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    typedef DWORD (WINAPI *get_temp_path_fn)(DWORD, LPWSTR);
+    get_temp_path_fn get_temp_path;
+    wsh_string_view prefix_view;
+    uint16_t *prefix;
+    size_t prefix_length;
+    uint16_t temp[MAX_PATH + 1U];
+    uint16_t candidate[MAX_PATH + 64U];
+    size_t temp_length;
+    size_t candidate_length;
+    size_t attempt;
+    size_t index;
+    LARGE_INTEGER counter;
+    HANDLE file;
+    int directory;
+    wsh_result result;
+
+    if (wsh_value_count(request->arguments) > 1U) {
+        return WSH_ERR_INVALID;
+    }
+    prefix_view = wsh_string_view_from_cstr("wsh-");
+    if (wsh_value_count(request->arguments) == 1U &&
+        !wsh_windows_library_argument(
+            request->arguments, 0U, &prefix_view)) {
+        return WSH_ERR_INVALID;
+    }
+    prefix = NULL;
+    result = wsh_windows_to_wide(
+        runtime, prefix_view, &prefix, &prefix_length);
+    if (result != WSH_OK || prefix_length > 80U) {
+        wsh_windows_release(runtime, prefix);
+        return result == WSH_OK ? WSH_ERR_RESOURCE : result;
+    }
+    for (index = 0U; index < prefix_length; ++index) {
+        if (wsh_windows_is_separator(prefix[index]) ||
+            prefix[index] == (uint16_t)':') {
+            wsh_windows_release(runtime, prefix);
+            return WSH_ERR_INVALID;
+        }
+    }
+    get_temp_path = (get_temp_path_fn)GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "GetTempPathW");
+    temp_length = get_temp_path == NULL ? 0U :
+        (size_t)get_temp_path(MAX_PATH + 1U, (LPWSTR)temp);
+    if (temp_length == 0U || temp_length > MAX_PATH) {
+        wsh_windows_release(runtime, prefix);
+        return WSH_ERR_INTERNAL;
+    }
+    directory = wsh_string_view_equal(
+        request->subject, wsh_string_view_from_cstr("fs::temp-dir"));
+    file = INVALID_HANDLE_VALUE;
+    result = WSH_ERR_MISMATCH;
+    for (attempt = 0U; attempt < 1024U; ++attempt) {
+        QueryPerformanceCounter(&counter);
+        candidate_length = temp_length;
+        memcpy(candidate, temp, temp_length * sizeof(*temp));
+        memcpy(
+            candidate + candidate_length,
+            prefix,
+            prefix_length * sizeof(*prefix));
+        candidate_length += prefix_length;
+        candidate_length = wsh_windows_library_append_nonce(
+            candidate,
+            candidate_length,
+            (uint64_t)counter.QuadPart ^
+                ((uint64_t)GetCurrentProcessId() << 32U) ^ attempt);
+        candidate[candidate_length] = 0U;
+        if (directory) {
+            if (CreateDirectoryW((LPCWSTR)candidate, NULL)) {
+                result = WSH_OK;
+                break;
+            }
+        } else {
+            file = CreateFileW(
+                (LPCWSTR)candidate,
+                GENERIC_READ | GENERIC_WRITE,
+                0U,
+                NULL,
+                CREATE_NEW,
+                FILE_ATTRIBUTE_TEMPORARY,
+                NULL);
+            if (file != INVALID_HANDLE_VALUE) {
+                CloseHandle(file);
+                result = WSH_OK;
+                break;
+            }
+        }
+        if (GetLastError() != ERROR_FILE_EXISTS &&
+            GetLastError() != ERROR_ALREADY_EXISTS) {
+            break;
+        }
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_wide(
+            runtime, output, candidate, candidate_length);
+    }
+    wsh_windows_release(runtime, prefix);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** One owned filesystem enumeration result. */
+typedef struct wsh_windows_library_entry {
+    /** Owned absolute path. */
+    uint16_t *path;
+    /** Path length excluding NUL. */
+    size_t length;
+    /** Attributes observed during enumeration. */
+    DWORD attributes;
+} wsh_windows_library_entry;
+
+/** Return whether a find result is the synthetic dot entry. */
+static int wsh_windows_library_dot_entry(const WIN32_FIND_DATAW *data)
+{
+    return data->cFileName[0] == (uint16_t)'.' &&
+        (data->cFileName[1] == 0U ||
+         (data->cFileName[1] == (uint16_t)'.' &&
+          data->cFileName[2] == 0U));
+}
+
+/** Match a Windows-ordinal `*`/`?` pattern against one file name. */
+static int wsh_windows_library_pattern_matches(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *pattern,
+    size_t pattern_length,
+    const uint16_t *name,
+    size_t name_length)
+{
+    size_t pattern_at;
+    size_t name_at;
+    size_t star;
+    size_t retry;
+
+    pattern_at = 0U;
+    name_at = 0U;
+    star = (size_t)-1;
+    retry = 0U;
+    while (name_at < name_length) {
+        if (pattern_at < pattern_length &&
+            pattern[pattern_at] == (uint16_t)'?') {
+            pattern_at += 1U;
+            name_at += 1U;
+        } else if (pattern_at < pattern_length &&
+            pattern[pattern_at] != (uint16_t)'*' &&
+            wsh_windows_compare_names(
+                runtime,
+                pattern + pattern_at,
+                1U,
+                name + name_at,
+                1U) == 0) {
+            pattern_at += 1U;
+            name_at += 1U;
+        } else if (pattern_at < pattern_length &&
+            pattern[pattern_at] == (uint16_t)'*') {
+            star = pattern_at++;
+            retry = name_at;
+        } else if (star != (size_t)-1) {
+            pattern_at = star + 1U;
+            name_at = ++retry;
+        } else {
+            return 0;
+        }
+    }
+    while (pattern_at < pattern_length &&
+        pattern[pattern_at] == (uint16_t)'*') {
+        pattern_at += 1U;
+    }
+    return pattern_at == pattern_length;
+}
+
+/** Destroy an owned filesystem-entry array. */
+static void wsh_windows_library_entries_destroy(
+    const wsh_windows_runtime *runtime,
+    wsh_windows_library_entry *entries,
+    size_t count)
+{
+    size_t index;
+
+    for (index = 0U; index < count; ++index) {
+        wsh_windows_release(runtime, entries[index].path);
+    }
+    wsh_windows_release(runtime, entries);
+}
+
+/** Add one owned copy to an enumeration result array. */
+static wsh_result wsh_windows_library_entry_add(
+    const wsh_windows_runtime *runtime,
+    wsh_windows_library_entry **entries,
+    size_t *count,
+    size_t *capacity,
+    const uint16_t *path,
+    size_t length,
+    DWORD attributes)
+{
+    size_t bytes;
+    wsh_result result;
+
+    result = wsh_windows_grow(
+        runtime,
+        (void **)entries,
+        sizeof(**entries),
+        *count,
+        capacity,
+        *count + 1U,
+        runtime->options.limits.max_list_items);
+    if (result == WSH_OK && !wsh_windows_multiply(
+            length + 1U, sizeof(*path), &bytes)) {
+        result = WSH_ERR_RESOURCE;
+    }
+    if (result == WSH_OK) {
+        (*entries)[*count].path = (uint16_t *)wsh_windows_allocate(
+            runtime, bytes);
+        if ((*entries)[*count].path == NULL) {
+            result = WSH_ERR_RESOURCE;
+        }
+    }
+    if (result == WSH_OK) {
+        memcpy((*entries)[*count].path, path, length * sizeof(*path));
+        (*entries)[*count].path[length] = 0U;
+        (*entries)[*count].length = length;
+        (*entries)[*count].attributes = attributes;
+        *count += 1U;
+    }
+    return result;
+}
+
+/** Recursively collect directory entries without following reparse points. */
+static wsh_result wsh_windows_library_collect_entries(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *directory,
+    size_t directory_length,
+    const uint16_t *pattern,
+    size_t pattern_length,
+    int recursive,
+    size_t depth,
+    wsh_windows_library_entry **entries,
+    size_t *count,
+    size_t *capacity)
+{
+    static const uint16_t wildcard[] = {(uint16_t)'*', 0U};
+    uint16_t *search;
+    size_t search_length;
+    uint16_t *child;
+    size_t child_length;
+    size_t name_length;
+    WIN32_FIND_DATAW data;
+    HANDLE find;
+    wsh_result result;
+
+    if (depth > 128U || depth > runtime->options.limits.max_list_items) {
+        return WSH_ERR_RESOURCE;
+    }
+    search = NULL;
+    result = wsh_windows_join_path(
+        runtime,
+        directory,
+        directory_length,
+        wildcard,
+        1U,
+        &search,
+        &search_length);
+    find = result == WSH_OK ?
+        FindFirstFileW((LPCWSTR)search, &data) : INVALID_HANDLE_VALUE;
+    wsh_windows_release(runtime, search);
+    if (result != WSH_OK) {
+        return result;
+    }
+    if (find == INVALID_HANDLE_VALUE) {
+        return GetLastError() == ERROR_FILE_NOT_FOUND ?
+            WSH_OK : WSH_ERR_MISMATCH;
+    }
+    do {
+        if (wsh_windows_library_dot_entry(&data)) {
+            continue;
+        }
+        name_length = 0U;
+        while (data.cFileName[name_length] != 0U) {
+            name_length += 1U;
+        }
+        child = NULL;
+        result = wsh_windows_join_path(
+            runtime,
+            directory,
+            directory_length,
+            (const uint16_t *)data.cFileName,
+            name_length,
+            &child,
+            &child_length);
+        if (result == WSH_OK && wsh_windows_library_pattern_matches(
+                runtime,
+                pattern,
+                pattern_length,
+                (const uint16_t *)data.cFileName,
+                name_length)) {
+            result = wsh_windows_library_entry_add(
+                runtime,
+                entries,
+                count,
+                capacity,
+                child,
+                child_length,
+                data.dwFileAttributes);
+        }
+        if (result == WSH_OK && recursive &&
+            (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U &&
+            (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0U) {
+            result = wsh_windows_library_collect_entries(
+                runtime,
+                child,
+                child_length,
+                pattern,
+                pattern_length,
+                recursive,
+                depth + 1U,
+                entries,
+                count,
+                capacity);
+        }
+        wsh_windows_release(runtime, child);
+        if (result != WSH_OK) {
+            break;
+        }
+    } while (FindNextFileW(find, &data));
+    if (result == WSH_OK && GetLastError() != ERROR_NO_MORE_FILES) {
+        result = WSH_ERR_INTERNAL;
+    }
+    FindClose(find);
+    return result;
+}
+
+/** Sort absolute entry paths using deterministic Windows ordering. */
+static void wsh_windows_library_entries_sort(
+    const wsh_windows_runtime *runtime,
+    wsh_windows_library_entry *entries,
+    size_t count)
+{
+    size_t index;
+
+    for (index = 1U; index < count; ++index) {
+        wsh_windows_library_entry current;
+        size_t position;
+
+        current = entries[index];
+        position = index;
+        while (position != 0U && wsh_windows_compare_names(
+                runtime,
+                current.path,
+                current.length,
+                entries[position - 1U].path,
+                entries[position - 1U].length) < 0) {
+            entries[position] = entries[position - 1U];
+            position -= 1U;
+        }
+        entries[position] = current;
+    }
+}
+
+/** Execute fs::list. */
+static wsh_result wsh_windows_library_fs_list(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    static const uint16_t default_pattern[] = {(uint16_t)'*', 0U};
+    wsh_string_view pattern_view;
+    wsh_string_view path;
+    uint16_t *pattern;
+    size_t pattern_length;
+    uint16_t *absolute;
+    size_t absolute_length;
+    wsh_windows_library_entry *entries;
+    size_t count;
+    size_t capacity;
+    size_t index;
+    int recursive;
+    wsh_result result;
+
+    index = 0U;
+    recursive = 0;
+    pattern = NULL;
+    pattern_length = 1U;
+    while (index < wsh_value_count(arguments)) {
+        if (wsh_windows_library_argument_is(arguments, index, "--recursive")) {
+            recursive = 1;
+            index += 1U;
+        } else if (wsh_windows_library_argument_is(
+                arguments, index, "--pattern")) {
+            if (!wsh_windows_library_argument(
+                    arguments, index + 1U, &pattern_view)) {
+                return WSH_ERR_INVALID;
+            }
+            result = wsh_windows_to_wide(
+                runtime, pattern_view, &pattern, &pattern_length);
+            if (result != WSH_OK) {
+                return result;
+            }
+            index += 2U;
+        } else {
+            break;
+        }
+    }
+    if (index + 1U != wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, index, &path)) {
+        wsh_windows_release(runtime, pattern);
+        return WSH_ERR_INVALID;
+    }
+    absolute = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, path, &absolute, &absolute_length);
+    if (result == WSH_OK &&
+        (GetFileAttributesW((LPCWSTR)absolute) &
+         FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+        result = WSH_ERR_MISMATCH;
+    }
+    entries = NULL;
+    count = 0U;
+    capacity = 0U;
+    if (result == WSH_OK) {
+        result = wsh_windows_library_collect_entries(
+            runtime,
+            absolute,
+            absolute_length,
+            pattern == NULL ? default_pattern : pattern,
+            pattern_length,
+            recursive,
+            0U,
+            &entries,
+            &count,
+            &capacity);
+    }
+    if (result == WSH_OK) {
+        wsh_windows_library_entries_sort(runtime, entries, count);
+    }
+    for (index = 0U; result == WSH_OK && index < count; ++index) {
+        result = wsh_windows_library_append_wide(
+            runtime, output, entries[index].path, entries[index].length);
+    }
+    wsh_windows_library_entries_destroy(runtime, entries, count);
+    wsh_windows_release(runtime, absolute);
+    wsh_windows_release(runtime, pattern);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Copy one file or opted-in directory tree without following links. */
+static wsh_result wsh_windows_library_copy_path(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *source,
+    size_t source_length,
+    const uint16_t *destination,
+    size_t destination_length,
+    int overwrite,
+    int recursive)
+{
+    static const uint16_t wildcard[] = {(uint16_t)'*', 0U};
+    DWORD attributes;
+    uint16_t *search;
+    size_t search_length;
+    WIN32_FIND_DATAW data;
+    HANDLE find;
+    size_t name_length;
+    uint16_t *source_child;
+    uint16_t *destination_child;
+    size_t source_child_length;
+    size_t destination_child_length;
+    wsh_result result;
+
+    attributes = GetFileAttributesW((LPCWSTR)source);
+    if (attributes == INVALID_FILE_ATTRIBUTES ||
+        (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        return WSH_ERR_MISMATCH;
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+        return CopyFileW(
+            (LPCWSTR)source, (LPCWSTR)destination, !overwrite) ?
+            WSH_OK : WSH_ERR_MISMATCH;
+    }
+    if (!recursive || GetFileAttributesW((LPCWSTR)destination) !=
+        INVALID_FILE_ATTRIBUTES ||
+        !CreateDirectoryW((LPCWSTR)destination, NULL)) {
+        return WSH_ERR_MISMATCH;
+    }
+    search = NULL;
+    result = wsh_windows_join_path(
+        runtime,
+        source,
+        source_length,
+        wildcard,
+        1U,
+        &search,
+        &search_length);
+    find = result == WSH_OK ?
+        FindFirstFileW((LPCWSTR)search, &data) : INVALID_HANDLE_VALUE;
+    wsh_windows_release(runtime, search);
+    if (result == WSH_OK && find == INVALID_HANDLE_VALUE &&
+        GetLastError() != ERROR_FILE_NOT_FOUND) {
+        result = WSH_ERR_MISMATCH;
+    }
+    while (result == WSH_OK && find != INVALID_HANDLE_VALUE) {
+        if (!wsh_windows_library_dot_entry(&data)) {
+            name_length = 0U;
+            while (data.cFileName[name_length] != 0U) {
+                name_length += 1U;
+            }
+            source_child = NULL;
+            destination_child = NULL;
+            result = wsh_windows_join_path(
+                runtime,
+                source,
+                source_length,
+                (const uint16_t *)data.cFileName,
+                name_length,
+                &source_child,
+                &source_child_length);
+            if (result == WSH_OK) {
+                result = wsh_windows_join_path(
+                    runtime,
+                    destination,
+                    destination_length,
+                    (const uint16_t *)data.cFileName,
+                    name_length,
+                    &destination_child,
+                    &destination_child_length);
+            }
+            if (result == WSH_OK) {
+                result = wsh_windows_library_copy_path(
+                    runtime,
+                    source_child,
+                    source_child_length,
+                    destination_child,
+                    destination_child_length,
+                    overwrite,
+                    recursive);
+            }
+            wsh_windows_release(runtime, destination_child);
+            wsh_windows_release(runtime, source_child);
+        }
+        if (result != WSH_OK || !FindNextFileW(find, &data)) {
+            break;
+        }
+    }
+    if (find != INVALID_HANDLE_VALUE) {
+        if (result == WSH_OK && GetLastError() != ERROR_NO_MORE_FILES) {
+            result = WSH_ERR_INTERNAL;
+        }
+        FindClose(find);
+    }
+    if (result != WSH_OK) {
+        (void)wsh_windows_library_remove_tree(
+            runtime, destination, destination_length, 1);
+    }
+    return result;
+}
+
+/** Count immediate directory entries without following reparse points. */
+static wsh_result wsh_windows_library_directory_count(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *directory,
+    size_t directory_length,
+    size_t *out_count)
+{
+    static const uint16_t wildcard[] = {(uint16_t)'*', 0U};
+    uint16_t *search;
+    size_t search_length;
+    WIN32_FIND_DATAW data;
+    HANDLE find;
+    size_t count;
+    wsh_result result;
+
+    search = NULL;
+    result = wsh_windows_join_path(
+        runtime,
+        directory,
+        directory_length,
+        wildcard,
+        1U,
+        &search,
+        &search_length);
+    find = result == WSH_OK ?
+        FindFirstFileW((LPCWSTR)search, &data) : INVALID_HANDLE_VALUE;
+    wsh_windows_release(runtime, search);
+    if (result != WSH_OK) {
+        return result;
+    }
+    if (find == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+            *out_count = 0U;
+            return WSH_OK;
+        }
+        return WSH_ERR_MISMATCH;
+    }
+    count = 0U;
+    do {
+        if (!wsh_windows_library_dot_entry(&data)) {
+            if (count == runtime->options.limits.max_list_items) {
+                result = WSH_ERR_RESOURCE;
+                break;
+            }
+            count += 1U;
+        }
+    } while (FindNextFileW(find, &data));
+    if (result == WSH_OK && GetLastError() != ERROR_NO_MORE_FILES) {
+        result = WSH_ERR_INTERNAL;
+    }
+    FindClose(find);
+    if (result == WSH_OK) {
+        *out_count = count;
+    }
+    return result;
+}
+
+/** Verify an exact recursive copy before a cross-volume source is removed. */
+static wsh_result wsh_windows_library_verify_copy(
+    const wsh_windows_runtime *runtime,
+    const uint16_t *source,
+    size_t source_length,
+    const uint16_t *destination,
+    size_t destination_length,
+    size_t depth)
+{
+    static const uint16_t wildcard[] = {(uint16_t)'*', 0U};
+    DWORD source_attributes;
+    DWORD destination_attributes;
+    unsigned char source_hash[32];
+    unsigned char destination_hash[32];
+    size_t source_count;
+    size_t destination_count;
+    uint16_t *search;
+    size_t search_length;
+    WIN32_FIND_DATAW data;
+    HANDLE find;
+    size_t name_length;
+    uint16_t *source_child;
+    uint16_t *destination_child;
+    size_t source_child_length;
+    size_t destination_child_length;
+    wsh_result result;
+
+    if (depth > 128U || depth > runtime->options.limits.max_list_items) {
+        return WSH_ERR_RESOURCE;
+    }
+    source_attributes = GetFileAttributesW((LPCWSTR)source);
+    destination_attributes = GetFileAttributesW((LPCWSTR)destination);
+    if (source_attributes == INVALID_FILE_ATTRIBUTES ||
+        destination_attributes == INVALID_FILE_ATTRIBUTES ||
+        (source_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U ||
+        (destination_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U ||
+        ((source_attributes ^ destination_attributes) &
+         FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        return WSH_ERR_MISMATCH;
+    }
+    if ((source_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+        result = wsh_windows_library_hash_wide(
+            runtime, source, source_hash);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_hash_wide(
+                runtime, destination, destination_hash);
+        }
+        if (result == WSH_OK && memcmp(
+                source_hash,
+                destination_hash,
+                sizeof(source_hash)) != 0) {
+            result = WSH_ERR_MISMATCH;
+        }
+        return result;
+    }
+    result = wsh_windows_library_directory_count(
+        runtime, source, source_length, &source_count);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_directory_count(
+            runtime,
+            destination,
+            destination_length,
+            &destination_count);
+    }
+    if (result == WSH_OK && source_count != destination_count) {
+        result = WSH_ERR_MISMATCH;
+    }
+    search = NULL;
+    if (result == WSH_OK) {
+        result = wsh_windows_join_path(
+            runtime,
+            source,
+            source_length,
+            wildcard,
+            1U,
+            &search,
+            &search_length);
+    }
+    find = result == WSH_OK ?
+        FindFirstFileW((LPCWSTR)search, &data) : INVALID_HANDLE_VALUE;
+    wsh_windows_release(runtime, search);
+    if (result == WSH_OK && find == INVALID_HANDLE_VALUE &&
+        GetLastError() != ERROR_FILE_NOT_FOUND) {
+        result = WSH_ERR_MISMATCH;
+    }
+    while (result == WSH_OK && find != INVALID_HANDLE_VALUE) {
+        if (!wsh_windows_library_dot_entry(&data)) {
+            name_length = 0U;
+            while (data.cFileName[name_length] != 0U) {
+                name_length += 1U;
+            }
+            source_child = NULL;
+            destination_child = NULL;
+            result = wsh_windows_join_path(
+                runtime,
+                source,
+                source_length,
+                (const uint16_t *)data.cFileName,
+                name_length,
+                &source_child,
+                &source_child_length);
+            if (result == WSH_OK) {
+                result = wsh_windows_join_path(
+                    runtime,
+                    destination,
+                    destination_length,
+                    (const uint16_t *)data.cFileName,
+                    name_length,
+                    &destination_child,
+                    &destination_child_length);
+            }
+            if (result == WSH_OK) {
+                result = wsh_windows_library_verify_copy(
+                    runtime,
+                    source_child,
+                    source_child_length,
+                    destination_child,
+                    destination_child_length,
+                    depth + 1U);
+            }
+            wsh_windows_release(runtime, destination_child);
+            wsh_windows_release(runtime, source_child);
+        }
+        if (result != WSH_OK || !FindNextFileW(find, &data)) {
+            break;
+        }
+    }
+    if (find != INVALID_HANDLE_VALUE) {
+        if (result == WSH_OK && GetLastError() != ERROR_NO_MORE_FILES) {
+            result = WSH_ERR_INTERNAL;
+        }
+        FindClose(find);
+    }
+    return result;
+}
+
+/** Execute fs::copy. */
+static wsh_result wsh_windows_library_fs_copy(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view source_view;
+    wsh_string_view destination_view;
+    uint16_t *source;
+    uint16_t *destination;
+    size_t source_length;
+    size_t destination_length;
+    size_t index;
+    int overwrite;
+    int recursive;
+    wsh_result result;
+
+    index = 0U;
+    overwrite = 0;
+    recursive = 0;
+    while (index < wsh_value_count(arguments)) {
+        if (wsh_windows_library_argument_is(arguments, index, "--overwrite")) {
+            overwrite = 1;
+        } else if (wsh_windows_library_argument_is(
+                arguments, index, "--recursive")) {
+            recursive = 1;
+        } else {
+            break;
+        }
+        index += 1U;
+    }
+    if (index + 2U != wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, index, &source_view) ||
+        !wsh_windows_library_argument(
+            arguments, index + 1U, &destination_view)) {
+        return WSH_ERR_INVALID;
+    }
+    source = NULL;
+    destination = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, source_view, &source, &source_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_absolute_path(
+            runtime,
+            destination_view,
+            &destination,
+            &destination_length);
+    }
+    if (result == WSH_OK && wsh_windows_compare_names(
+            runtime,
+            source,
+            source_length,
+            destination,
+            destination_length) == 0) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK &&
+        (GetFileAttributesW((LPCWSTR)source) &
+         FILE_ATTRIBUTE_DIRECTORY) != 0U &&
+        wsh_windows_library_path_within_wide(
+            runtime,
+            source,
+            source_length,
+            destination,
+            destination_length)) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_copy_path(
+            runtime,
+            source,
+            source_length,
+            destination,
+            destination_length,
+            overwrite,
+            recursive);
+    }
+    wsh_windows_release(runtime, destination);
+    wsh_windows_release(runtime, source);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute fs::move, including copy-then-remove cross-volume fallback. */
+static wsh_result wsh_windows_library_fs_move(
+    const wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    typedef WINBOOL (WINAPI *move_file_ex_fn)(LPCWSTR, LPCWSTR, DWORD);
+    wsh_string_view source_view;
+    wsh_string_view destination_view;
+    uint16_t *source;
+    uint16_t *destination;
+    size_t source_length;
+    size_t destination_length;
+    size_t index;
+    DWORD attributes;
+    DWORD flags;
+    DWORD error;
+    int overwrite;
+    move_file_ex_fn move_file_ex;
+    wsh_result result;
+
+    index = 0U;
+    overwrite = 0;
+    if (wsh_windows_library_argument_is(arguments, 0U, "--overwrite")) {
+        overwrite = 1;
+        index = 1U;
+    }
+    if (index + 2U != wsh_value_count(arguments) ||
+        !wsh_windows_library_argument(arguments, index, &source_view) ||
+        !wsh_windows_library_argument(
+            arguments, index + 1U, &destination_view)) {
+        return WSH_ERR_INVALID;
+    }
+    source = NULL;
+    destination = NULL;
+    result = wsh_windows_library_absolute_path(
+        runtime, source_view, &source, &source_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_absolute_path(
+            runtime,
+            destination_view,
+            &destination,
+            &destination_length);
+    }
+    attributes = result == WSH_OK ?
+        GetFileAttributesW((LPCWSTR)source) : INVALID_FILE_ATTRIBUTES;
+    if (result == WSH_OK && (attributes == INVALID_FILE_ATTRIBUTES ||
+        (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK && wsh_windows_compare_names(
+            runtime,
+            source,
+            source_length,
+            destination,
+            destination_length) == 0) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U &&
+        wsh_windows_library_path_within_wide(
+            runtime,
+            source,
+            source_length,
+            destination,
+            destination_length)) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK && !overwrite &&
+        GetFileAttributesW((LPCWSTR)destination) != INVALID_FILE_ATTRIBUTES) {
+        result = WSH_ERR_MISMATCH;
+    }
+    move_file_ex = (move_file_ex_fn)GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "MoveFileExW");
+    flags = MOVEFILE_WRITE_THROUGH |
+        (overwrite ? MOVEFILE_REPLACE_EXISTING : 0U);
+    if (result == WSH_OK && move_file_ex != NULL &&
+        move_file_ex((LPCWSTR)source, (LPCWSTR)destination, flags)) {
+        result = WSH_OK;
+    } else if (result == WSH_OK) {
+        error = GetLastError();
+        if (move_file_ex == NULL || error != ERROR_NOT_SAME_DEVICE) {
+            result = WSH_ERR_MISMATCH;
+        } else {
+            result = wsh_windows_library_copy_path(
+                runtime,
+                source,
+                source_length,
+                destination,
+                destination_length,
+                overwrite,
+                (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U);
+            if (result == WSH_OK) {
+                result = wsh_windows_library_verify_copy(
+                    runtime,
+                    source,
+                    source_length,
+                    destination,
+                    destination_length,
+                    0U);
+            }
+            if (result == WSH_OK) {
+                result = wsh_windows_library_remove_tree(
+                    runtime, source, source_length, 0);
+            }
+        }
+    }
+    wsh_windows_release(runtime, destination);
+    wsh_windows_release(runtime, source);
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute the initial filesystem command set. */
+static wsh_result wsh_windows_library_filesystem(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::exists")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::type"))) {
+        return wsh_windows_library_fs_type(
+            runtime, request, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::mkdir"))) {
+        return wsh_windows_library_fs_mkdir(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::stat"))) {
+        return wsh_windows_library_fs_stat(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::hash"))) {
+        return wsh_windows_library_fs_hash(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::list"))) {
+        return wsh_windows_library_fs_list(
+            runtime, request->arguments, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::copy"))) {
+        return wsh_windows_library_fs_copy(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::move"))) {
+        return wsh_windows_library_fs_move(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::compare"))) {
+        return wsh_windows_library_fs_compare(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::temp-file")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::temp-dir"))) {
+        return wsh_windows_library_fs_temp(
+            runtime, request, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::remove"))) {
+        return wsh_windows_library_fs_remove(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::read"))) {
+        return wsh_windows_library_fs_read(
+            runtime, request, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("fs::write"))) {
+        return wsh_windows_library_fs_write(
+            runtime, request->arguments, status);
+    }
+    return WSH_ERR_INVALID;
+}
+
+/** Return the compile-time architecture name. */
+static const char *wsh_windows_library_process_architecture(void)
+{
+#if defined(_M_ARM64) || defined(__aarch64__)
+    return "arm64";
+#elif defined(_M_IX86) || defined(__i386__)
+    return "x86";
+#elif defined(_M_X64) || defined(__x86_64__)
+    return "x64";
+#else
+    return "unknown";
+#endif
+}
+
+/** Return the architecture name for one Windows processor identifier. */
+static const char *wsh_windows_library_native_architecture(WORD architecture)
+{
+    if (architecture == PROCESSOR_ARCHITECTURE_ARM64) {
+        return "arm64";
+    }
+    if (architecture == PROCESSOR_ARCHITECTURE_AMD64) {
+        return "x64";
+    }
+    if (architecture == PROCESSOR_ARCHITECTURE_INTEL) {
+        return "x86";
+    }
+    return "unknown";
+}
+
+/** Execute time::now, time::monotonic, or time::sleep. */
+static wsh_result wsh_windows_library_time(
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    typedef void (WINAPI *get_precise_time_fn)(LPFILETIME);
+    FILETIME now;
+    get_precise_time_fn get_precise_time;
+    LARGE_INTEGER counter;
+    LARGE_INTEGER frequency;
+    wsh_string_view argument;
+    uint64_t seconds;
+    uint64_t remainder;
+    uint64_t nanoseconds;
+    uint32_t milliseconds;
+    char buffer[80];
+    int written;
+    wsh_result result;
+
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("time::now"))) {
+        if (wsh_value_count(request->arguments) != 1U ||
+            !wsh_windows_library_argument_is(
+                request->arguments, 0U, "--utc")) {
+            return WSH_ERR_INVALID;
+        }
+        get_precise_time = (get_precise_time_fn)GetProcAddress(
+            GetModuleHandleW(L"kernel32.dll"),
+            "GetSystemTimePreciseAsFileTime");
+        if (get_precise_time != NULL) {
+            get_precise_time(&now);
+        } else {
+            GetSystemTimeAsFileTime(&now);
+        }
+        if (!wsh_windows_library_format_file_time(
+                &now, buffer, sizeof(buffer))) {
+            return WSH_ERR_INTERNAL;
+        }
+        written = (int)strlen(buffer);
+        result = wsh_windows_library_append(
+            output, buffer, (size_t)written);
+        return result == WSH_OK ? wsh_windows_library_success(status) : result;
+    }
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("time::monotonic"))) {
+        if (wsh_value_count(request->arguments) != 0U ||
+            !QueryPerformanceCounter(&counter) ||
+            !QueryPerformanceFrequency(&frequency) ||
+            counter.QuadPart < 0 || frequency.QuadPart <= 0) {
+            return WSH_ERR_INTERNAL;
+        }
+        seconds = (uint64_t)counter.QuadPart /
+            (uint64_t)frequency.QuadPart;
+        remainder = (uint64_t)counter.QuadPart %
+            (uint64_t)frequency.QuadPart;
+        if (seconds > UINT64_MAX / 1000000000ULL) {
+            return WSH_ERR_RESOURCE;
+        }
+        nanoseconds = seconds * 1000000000ULL +
+            remainder * 1000000000ULL / (uint64_t)frequency.QuadPart;
+        written = snprintf(
+            buffer, sizeof(buffer), "%llu",
+            (unsigned long long)nanoseconds);
+        if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+            return WSH_ERR_INTERNAL;
+        }
+        result = wsh_windows_library_append(
+            output, buffer, (size_t)written);
+        return result == WSH_OK ? wsh_windows_library_success(status) : result;
+    }
+    if (!wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("time::sleep")) ||
+        wsh_value_count(request->arguments) != 1U ||
+        !wsh_windows_library_argument(
+            request->arguments, 0U, &argument) ||
+        !wsh_windows_library_u32(argument, &milliseconds)) {
+        return WSH_ERR_INVALID;
+    }
+    Sleep(milliseconds);
+    return wsh_windows_library_success(status);
+}
+
+/** Append deterministic process-environment names without values. */
+static wsh_result wsh_windows_library_environment(
+    const wsh_windows_runtime *runtime,
+    wsh_value_builder *output)
+{
+    LPWCH block;
+    const uint16_t *entry;
+    size_t length;
+    size_t equals;
+    size_t count;
+    size_t capacity;
+    size_t index;
+    size_t bytes;
+    char *utf8;
+    size_t utf8_length;
+    wsh_environment_entry *entries;
+    wsh_result result;
+
+    block = GetEnvironmentStringsW();
+    if (block == NULL) {
+        return WSH_ERR_INTERNAL;
+    }
+    entries = NULL;
+    count = 0U;
+    capacity = 0U;
+    result = WSH_OK;
+    entry = (const uint16_t *)block;
+    while (result == WSH_OK && entry[0] != 0U) {
+        length = 0U;
+        while (entry[length] != 0U) {
+            length += 1U;
+        }
+        equals = entry[0] == (uint16_t)'=' ? 1U : 0U;
+        while (equals < length && entry[equals] != (uint16_t)'=') {
+            equals += 1U;
+        }
+        if (equals != 0U && equals < length && entry[0] != (uint16_t)'=') {
+            result = wsh_windows_grow(
+                runtime,
+                (void **)&entries,
+                sizeof(*entries),
+                count,
+                &capacity,
+                count + 1U,
+                runtime->options.limits.max_list_items);
+            if (result == WSH_OK && !wsh_windows_multiply(
+                    equals + 1U, sizeof(*entries[count].name), &bytes)) {
+                result = WSH_ERR_RESOURCE;
+            }
+            if (result == WSH_OK) {
+                memset(&entries[count], 0, sizeof(entries[count]));
+                entries[count].name = (uint16_t *)wsh_windows_allocate(
+                    runtime, bytes);
+                if (entries[count].name == NULL) {
+                    result = WSH_ERR_RESOURCE;
+                }
+            }
+            if (result == WSH_OK) {
+                memcpy(entries[count].name, entry, equals * sizeof(*entry));
+                entries[count].name[equals] = 0U;
+                entries[count].name_length = equals;
+                count += 1U;
+            }
+        }
+        entry += length + 1U;
+    }
+    FreeEnvironmentStringsW(block);
+    if (result == WSH_OK) {
+        wsh_environment_entries_sort(runtime, entries, count);
+    }
+    for (index = 0U; result == WSH_OK && index < count; ++index) {
+        utf8 = NULL;
+        utf8_length = 0U;
+        result = wsh_windows_from_wide(
+            runtime,
+            entries[index].name,
+            entries[index].name_length,
+            &utf8,
+            &utf8_length);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_append(output, utf8, utf8_length);
+        }
+        wsh_windows_release(runtime, utf8);
+    }
+    for (index = 0U; index < count; ++index) {
+        wsh_environment_entry_destroy(runtime, &entries[index]);
+    }
+    wsh_windows_release(runtime, entries);
+    return result;
+}
+
+/** Execute the system namespace. */
+static wsh_result wsh_windows_library_system(
+    const wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    typedef LONG (WINAPI *rtl_get_version_fn)(OSVERSIONINFOW *);
+    typedef void (WINAPI *get_native_system_info_fn)(LPSYSTEM_INFO);
+    SYSTEM_INFO system_info;
+    OSVERSIONINFOEXW version;
+    HMODULE ntdll;
+    rtl_get_version_fn rtl_get_version;
+    get_native_system_info_fn get_native_system_info;
+    char buffer[80];
+    int written;
+    wsh_result result;
+
+    if (wsh_value_count(request->arguments) != 0U) {
+        return WSH_ERR_INVALID;
+    }
+    result = WSH_OK;
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("system::architecture"))) {
+        memset(&system_info, 0, sizeof(system_info));
+        get_native_system_info = (get_native_system_info_fn)GetProcAddress(
+            GetModuleHandleW(L"kernel32.dll"), "GetNativeSystemInfo");
+        if (get_native_system_info != NULL) {
+            get_native_system_info(&system_info);
+        } else {
+            GetSystemInfo(&system_info);
+        }
+        result = wsh_value_builder_append(
+            output,
+            wsh_string_view_from_cstr(
+                wsh_windows_library_process_architecture()));
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(
+                output,
+                wsh_string_view_from_cstr(
+                    wsh_windows_library_native_architecture(
+                        system_info.wProcessorArchitecture)));
+        }
+    } else if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("system::environment"))) {
+        result = wsh_windows_library_environment(runtime, output);
+    } else if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("system::wsh-version"))) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "product", WSH_VERSION);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_append_field(
+                runtime, output, "standard-library", WSH_VERSION);
+        }
+        if (result == WSH_OK) {
+            result = wsh_windows_library_append_field(
+                runtime, output, "wcrt", WSH_WCRT_VERSION);
+        }
+        if (result == WSH_OK) {
+            result = wsh_windows_library_append_field(
+                runtime, output, "abi", "1");
+        }
+    } else if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("system::windows-version"))) {
+        memset(&version, 0, sizeof(version));
+        version.dwOSVersionInfoSize = sizeof(version);
+        ntdll = GetModuleHandleW(L"ntdll.dll");
+        rtl_get_version = ntdll == NULL ? NULL :
+            (rtl_get_version_fn)GetProcAddress(ntdll, "RtlGetVersion");
+        if (rtl_get_version == NULL ||
+            rtl_get_version((OSVERSIONINFOW *)&version) < 0) {
+            return WSH_ERR_INTERNAL;
+        }
+        written = snprintf(
+            buffer, sizeof(buffer), "%lu",
+            (unsigned long)version.dwMajorVersion);
+        if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+            return WSH_ERR_INTERNAL;
+        }
+        result = wsh_windows_library_append_field(
+            runtime, output, "major", buffer);
+        if (result == WSH_OK) {
+            written = snprintf(
+                buffer, sizeof(buffer), "%lu",
+                (unsigned long)version.dwMinorVersion);
+            if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+                result = WSH_ERR_INTERNAL;
+            } else {
+                result = wsh_windows_library_append_field(
+                    runtime, output, "minor", buffer);
+            }
+        }
+        if (result == WSH_OK) {
+            written = snprintf(
+                buffer, sizeof(buffer), "%lu",
+                (unsigned long)version.dwBuildNumber);
+            if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+                result = WSH_ERR_INTERNAL;
+            } else {
+                result = wsh_windows_library_append_field(
+                    runtime, output, "build", buffer);
+            }
+        }
+        if (result == WSH_OK) {
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%u",
+                (unsigned)version.wServicePackMajor);
+            if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+                result = WSH_ERR_INTERNAL;
+            } else {
+                result = wsh_windows_library_append_field(
+                    runtime, output, "service-pack", buffer);
+            }
+        }
+        if (result == WSH_OK) {
+            written = snprintf(
+                buffer, sizeof(buffer), "%u", (unsigned)version.wProductType);
+            if (written <= 0 || (size_t)written >= sizeof(buffer)) {
+                result = WSH_ERR_INTERNAL;
+            } else {
+                result = wsh_windows_library_append_field(
+                    runtime, output, "product-type", buffer);
+            }
+        }
+    } else {
+        return WSH_ERR_INVALID;
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) : result;
+}
+
+/** Clone one shell context for isolated process-library environment edits. */
+static wsh_result wsh_windows_library_clone_context(
+    const wsh_context *source,
+    wsh_context **out_context)
+{
+    wsh_context_options options;
+    wsh_string_view name;
+    const wsh_value *value;
+    int exported;
+    size_t index;
+    wsh_result result;
+
+    *out_context = NULL;
+    result = wsh_context_get_options(source, &options);
+    if (result == WSH_OK) {
+        result = wsh_context_create(&options, out_context);
+    }
+    for (index = 0U; result == WSH_OK &&
+         index < wsh_context_variable_count(source); ++index) {
+        result = wsh_context_variable_at(
+            source, index, &name, &value, &exported);
+        if (result == WSH_OK) {
+            result = exported ?
+                wsh_context_import_variable(*out_context, name, value) :
+                wsh_context_set_variable(*out_context, name, value);
+        }
+    }
+    if (result != WSH_OK) {
+        wsh_context_destroy(*out_context);
+        *out_context = NULL;
+    }
+    return result;
+}
+
+/** Remove a context variable using Windows environment-name equality. */
+static wsh_result wsh_windows_library_context_unset(
+    const wsh_windows_runtime *runtime,
+    wsh_context *context,
+    wsh_string_view requested)
+{
+    wsh_string_view name;
+    const wsh_value *value;
+    int exported;
+    size_t index;
+    wsh_result result;
+
+    for (index = 0U; index < wsh_context_variable_count(context); ++index) {
+        result = wsh_context_variable_at(
+            context, index, &name, &value, &exported);
+        if (result != WSH_OK) {
+            return result;
+        }
+        if (wsh_windows_names_equal((void *)runtime, name, requested)) {
+            return wsh_context_unset_variable(context, name);
+        }
+    }
+    return WSH_OK;
+}
+
+/** Apply one `--set name=value` environment edit to an isolated context. */
+static wsh_result wsh_windows_library_context_set(
+    const wsh_windows_runtime *runtime,
+    wsh_context *context,
+    wsh_string_view assignment)
+{
+    wsh_string_view name;
+    wsh_string_view value_view;
+    wsh_value_builder *builder;
+    wsh_value *value;
+    size_t equals;
+    wsh_result result;
+
+    equals = 0U;
+    while (equals < assignment.length && assignment.data[equals] != '=') {
+        equals += 1U;
+    }
+    if (equals == 0U || equals == assignment.length) {
+        return WSH_ERR_INVALID;
+    }
+    name.data = assignment.data;
+    name.length = equals;
+    value_view.data = assignment.data + equals + 1U;
+    value_view.length = assignment.length - equals - 1U;
+    result = wsh_windows_library_context_unset(runtime, context, name);
+    builder = NULL;
+    if (result == WSH_OK) {
+        result = wsh_value_builder_create(NULL, NULL, &builder);
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_append(builder, value_view);
+    }
+    value = NULL;
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(builder, &value);
+    }
+    wsh_value_builder_destroy(builder);
+    if (result == WSH_OK) {
+        result = wsh_context_import_variable(context, name, value);
+    }
+    wsh_value_destroy(value);
+    return result;
+}
+
+/** Execute process::which with the M5 command-search implementation. */
+static wsh_result wsh_windows_library_process_which(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view subject;
+    wsh_string *resolved;
+    size_t index;
+    wsh_result result;
+
+    if (wsh_value_count(request->arguments) == 0U) {
+        return WSH_ERR_INVALID;
+    }
+    result = WSH_OK;
+    for (index = 0U; result == WSH_OK &&
+         index < wsh_value_count(request->arguments); ++index) {
+        if (!wsh_windows_library_argument(
+                request->arguments, index, &subject)) {
+            result = WSH_ERR_INVALID;
+            break;
+        }
+        resolved = NULL;
+        result = wsh_windows_runtime_resolve(
+            runtime, request->context, subject, &resolved);
+        if (result == WSH_OK) {
+            result = wsh_value_builder_append(
+                output, wsh_string_bytes(resolved));
+        }
+        wsh_string_destroy(resolved);
+    }
+    return result == WSH_OK ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
+/** Execute structured, raw, or captured process launch. */
+static wsh_result wsh_windows_library_process_launch(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_runtime_command command;
+    wsh_runtime_launch_plan plan;
+    wsh_runtime_redirection redirections[4];
+    wsh_string_view option;
+    wsh_string_view operand;
+    wsh_string_view capture_stdout;
+    wsh_string_view capture_stderr;
+    wsh_string_view capture_encoding;
+    wsh_value_builder *arguments_builder;
+    wsh_value *arguments;
+    wsh_context *context;
+    size_t index;
+    size_t redirection_count;
+    uint32_t timeout;
+    int capture;
+    int merge_stderr;
+    int saw_separator;
+    wsh_result result;
+
+    memset(&command, 0, sizeof(command));
+    memset(&plan, 0, sizeof(plan));
+    memset(redirections, 0, sizeof(redirections));
+    capture = wsh_string_view_equal(
+        request->subject, wsh_string_view_from_cstr("process::capture"));
+    command.raw = wsh_string_view_equal(
+        request->subject, wsh_string_view_from_cstr("process::raw"));
+    capture_stdout.data = NULL;
+    capture_stdout.length = 0U;
+    capture_stderr.data = NULL;
+    capture_stderr.length = 0U;
+    capture_encoding.data = NULL;
+    capture_encoding.length = 0U;
+    timeout = 0U;
+    merge_stderr = 0;
+    redirection_count = 0U;
+    context = NULL;
+    result = wsh_windows_library_clone_context(request->context, &context);
+    index = 0U;
+    saw_separator = 0;
+    while (result == WSH_OK && index < wsh_value_count(request->arguments)) {
+        if (wsh_windows_library_argument_is(
+                request->arguments, index, "--")) {
+            saw_separator = 1;
+            index += 1U;
+            break;
+        }
+        if (!wsh_windows_library_argument(
+                request->arguments, index, &option)) {
+            result = WSH_ERR_INVALID;
+            break;
+        }
+        if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--merge-stderr"))) {
+            merge_stderr = 1;
+            index += 1U;
+            continue;
+        }
+        if (index + 1U >= wsh_value_count(request->arguments) ||
+            !wsh_windows_library_argument(
+                request->arguments, index + 1U, &operand)) {
+            result = WSH_ERR_INVALID;
+            break;
+        }
+        if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--cwd"))) {
+            command.working_directory = operand;
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--set"))) {
+            result = wsh_windows_library_context_set(
+                runtime, context, operand);
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--unset"))) {
+            result = wsh_windows_library_context_unset(
+                runtime, context, operand);
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--timeout"))) {
+            if (!wsh_windows_library_u32(operand, &timeout)) {
+                result = WSH_ERR_INVALID;
+            }
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--encoding"))) {
+            if (!capture || capture_encoding.data != NULL) {
+                result = WSH_ERR_INVALID;
+            } else {
+                capture_encoding = operand;
+            }
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--stdin"))) {
+            if (redirection_count >=
+                sizeof(redirections) / sizeof(redirections[0])) {
+                result = WSH_ERR_RESOURCE;
+            } else {
+                redirections[redirection_count].kind =
+                    WSH_RUNTIME_REDIRECT_INPUT;
+                redirections[redirection_count].target_descriptor = 0U;
+                redirections[redirection_count++].operand = operand;
+            }
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--stdout"))) {
+            if (capture) {
+                capture_stdout = operand;
+            } else if (redirection_count >=
+                sizeof(redirections) / sizeof(redirections[0])) {
+                result = WSH_ERR_RESOURCE;
+            } else {
+                redirections[redirection_count].kind =
+                    WSH_RUNTIME_REDIRECT_OUTPUT;
+                redirections[redirection_count].target_descriptor = 1U;
+                redirections[redirection_count++].operand = operand;
+            }
+        } else if (wsh_string_view_equal(
+                option, wsh_string_view_from_cstr("--stderr"))) {
+            if (capture) {
+                capture_stderr = operand;
+            } else if (redirection_count >=
+                sizeof(redirections) / sizeof(redirections[0])) {
+                result = WSH_ERR_RESOURCE;
+            } else {
+                redirections[redirection_count].kind =
+                    WSH_RUNTIME_REDIRECT_OUTPUT;
+                redirections[redirection_count].target_descriptor = 2U;
+                redirections[redirection_count++].operand = operand;
+            }
+        } else {
+            result = WSH_ERR_INVALID;
+        }
+        index += 2U;
+    }
+    if (result == WSH_OK && (!saw_separator ||
+        index >= wsh_value_count(request->arguments) ||
+        (capture && capture_stdout.data == NULL) ||
+        (capture_stderr.data != NULL && merge_stderr))) {
+        result = WSH_ERR_INVALID;
+    }
+    if (result == WSH_OK && merge_stderr) {
+        if (redirection_count >=
+            sizeof(redirections) / sizeof(redirections[0])) {
+            result = WSH_ERR_RESOURCE;
+        } else {
+            redirections[redirection_count].kind =
+                WSH_RUNTIME_REDIRECT_DUPLICATE;
+            redirections[redirection_count].target_descriptor = 2U;
+            redirections[redirection_count].source_descriptor = 1U;
+            redirection_count += 1U;
+        }
+    }
+    arguments_builder = NULL;
+    arguments = NULL;
+    if (result == WSH_OK && !command.raw) {
+        command.subject = operand;
+        if (!wsh_windows_library_argument(
+                request->arguments, index++, &command.subject)) {
+            result = WSH_ERR_INVALID;
+        }
+        if (result == WSH_OK) {
+            result = wsh_value_builder_create(NULL, NULL, &arguments_builder);
+        }
+        while (result == WSH_OK &&
+            index < wsh_value_count(request->arguments)) {
+            if (!wsh_windows_library_argument(
+                    request->arguments, index++, &operand)) {
+                result = WSH_ERR_INVALID;
+            } else {
+                result = wsh_value_builder_append(arguments_builder, operand);
+            }
+        }
+        if (result == WSH_OK) {
+            result = wsh_value_builder_finish(arguments_builder, &arguments);
+            command.arguments = arguments;
+        }
+    } else if (result == WSH_OK) {
+        if (index + 2U != wsh_value_count(request->arguments) ||
+            !wsh_windows_library_argument(
+                request->arguments, index, &command.subject) ||
+            !wsh_windows_library_argument(
+                request->arguments, index + 1U, &command.raw_command_line)) {
+            result = WSH_ERR_INVALID;
+        }
+    }
+    wsh_value_builder_destroy(arguments_builder);
+    command.redirections = redirections;
+    command.redirection_count = redirection_count;
+    plan.commands = &command;
+    plan.command_count = 1U;
+    plan.flags = capture ? WSH_RUNTIME_LAUNCH_CAPTURE |
+        (capture_stderr.data != NULL ?
+         WSH_RUNTIME_LAUNCH_CAPTURE_STDERR : 0U) : 0U;
+    plan.timeout_milliseconds = timeout;
+    plan.capture_encoding = capture_encoding;
+    if (result == WSH_OK) {
+        result = wsh_windows_launch_plan(
+            runtime, context, &plan, output, status);
+    }
+    wsh_context_destroy(context);
+    wsh_value_destroy(arguments);
+    return result;
+}
+
+/** Launch quoted WSH blocks in bounded concurrent batches. */
+static wsh_result wsh_windows_library_process_parallel(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_status_builder *status)
+{
+    wsh_string_view item;
+    wsh_string *executable;
+    wsh_value_builder *argument_builder;
+    wsh_value *arguments;
+    wsh_value_builder *discard_output;
+    wsh_status_builder *discard_status;
+    wsh_status_builder *batch_builder;
+    wsh_status_list *batch_status;
+    wsh_runtime_command command;
+    wsh_runtime_launch_plan plan;
+    uint32_t jobs;
+    uint32_t code;
+    size_t index;
+    size_t batch_end;
+    size_t status_index;
+    int fail_fast;
+    int failed;
+    wsh_result result;
+
+    index = 0U;
+    jobs = 0U;
+    fail_fast = 0;
+    if (!wsh_windows_library_argument_is(
+            request->arguments, index, "--jobs") ||
+        !wsh_windows_library_argument(
+            request->arguments, index + 1U, &item) ||
+        !wsh_windows_library_u32(item, &jobs) || jobs == 0U ||
+        jobs > runtime->options.max_children) {
+        return WSH_ERR_INVALID;
+    }
+    index += 2U;
+    if (wsh_windows_library_argument_is(
+            request->arguments, index, "--fail-fast")) {
+        fail_fast = 1;
+        index += 1U;
+    }
+    if (!wsh_windows_library_argument_is(
+            request->arguments, index, "--") ||
+        index + 1U >= wsh_value_count(request->arguments)) {
+        return WSH_ERR_INVALID;
+    }
+    index += 1U;
+    executable = NULL;
+    result = wsh_windows_executable_utf8(runtime, &executable);
+    failed = 0;
+    while (result == WSH_OK && !failed &&
+        index < wsh_value_count(request->arguments)) {
+        batch_end = index + jobs;
+        if (batch_end > wsh_value_count(request->arguments)) {
+            batch_end = wsh_value_count(request->arguments);
+        }
+        for (; result == WSH_OK && index < batch_end; ++index) {
+            if (!wsh_windows_library_argument(
+                    request->arguments, index, &item)) {
+                result = WSH_ERR_INVALID;
+                break;
+            }
+            argument_builder = NULL;
+            arguments = NULL;
+            result = wsh_value_builder_create(NULL, NULL, &argument_builder);
+            if (result == WSH_OK) {
+                result = wsh_value_builder_append(
+                    argument_builder, wsh_string_view_from_cstr("-c"));
+            }
+            if (result == WSH_OK) {
+                result = wsh_value_builder_append(argument_builder, item);
+            }
+            if (result == WSH_OK) {
+                result = wsh_value_builder_finish(
+                    argument_builder, &arguments);
+            }
+            wsh_value_builder_destroy(argument_builder);
+            memset(&command, 0, sizeof(command));
+            memset(&plan, 0, sizeof(plan));
+            command.subject = wsh_string_bytes(executable);
+            command.arguments = arguments;
+            command.nested_host = 1;
+            plan.commands = &command;
+            plan.command_count = 1U;
+            plan.flags = WSH_RUNTIME_LAUNCH_BACKGROUND |
+                WSH_RUNTIME_LAUNCH_PROCESS_GROUP;
+            discard_output = NULL;
+            discard_status = NULL;
+            if (result == WSH_OK) {
+                result = wsh_value_builder_create(
+                    NULL, NULL, &discard_output);
+            }
+            if (result == WSH_OK) {
+                result = wsh_status_builder_create(
+                    NULL, NULL, &discard_status);
+            }
+            if (result == WSH_OK) {
+                result = wsh_windows_launch_plan(
+                    runtime,
+                    request->context,
+                    &plan,
+                    discard_output,
+                    discard_status);
+            }
+            wsh_status_builder_destroy(discard_status);
+            wsh_value_builder_destroy(discard_output);
+            wsh_value_destroy(arguments);
+        }
+        batch_builder = NULL;
+        batch_status = NULL;
+        if (result == WSH_OK) {
+            result = wsh_status_builder_create(NULL, NULL, &batch_builder);
+        }
+        if (result == WSH_OK) {
+            result = wsh_windows_wait_background(runtime, NULL, batch_builder);
+        }
+        if (result == WSH_OK) {
+            result = wsh_status_builder_finish(batch_builder, &batch_status);
+        }
+        wsh_status_builder_destroy(batch_builder);
+        for (status_index = 0U; result == WSH_OK &&
+             status_index < wsh_status_list_count(batch_status);
+             ++status_index) {
+            result = wsh_status_list_at(batch_status, status_index, &code);
+            if (result == WSH_OK) {
+                result = wsh_status_builder_append(status, code);
+            }
+            if (code != 0U) {
+                failed = fail_fast;
+            }
+        }
+        wsh_status_list_destroy(batch_status);
+    }
+    if (result != WSH_OK && runtime->group_count != 0U) {
+        discard_status = NULL;
+        if (wsh_status_builder_create(NULL, NULL, &discard_status) == WSH_OK) {
+            (void)wsh_windows_cancel_background(runtime, NULL, discard_status);
+        }
+        wsh_status_builder_destroy(discard_status);
+    }
+    wsh_string_destroy(executable);
+    return result;
+}
+
+/** Execute the process namespace through the existing M5 runtime. */
+static wsh_result wsh_windows_library_process(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::which"))) {
+        return wsh_windows_library_process_which(
+            runtime, request, output, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::wait"))) {
+        return wsh_windows_wait_background(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::cancel"))) {
+        return wsh_windows_cancel_background(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::parallel"))) {
+        return wsh_windows_library_process_parallel(
+            runtime, request, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::run")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::raw")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("process::capture"))) {
+        return wsh_windows_library_process_launch(
+            runtime, request, output, status);
+    }
+    return WSH_ERR_INVALID;
+}
+
+/** Copy one strict UTF-8 test metadata field. */
+static wsh_result wsh_windows_library_test_copy(
+    const wsh_windows_runtime *runtime,
+    wsh_string_view value,
+    char **out_copy)
+{
+    char *copy;
+
+    copy = (char *)wsh_windows_allocate(runtime, value.length + 1U);
+    if (copy == NULL) {
+        return WSH_ERR_RESOURCE;
+    }
+    memcpy(copy, value.data, value.length);
+    copy[value.length] = '\0';
+    *out_copy = copy;
+    return WSH_OK;
+}
+
+/** Clear all active native test state. */
+static void wsh_windows_library_test_clear(wsh_windows_runtime *runtime)
+{
+    wsh_windows_release(runtime, runtime->test_identifier);
+    wsh_windows_release(runtime, runtime->test_title);
+    wsh_windows_release(runtime, runtime->test_reason);
+    runtime->test_identifier = NULL;
+    runtime->test_title = NULL;
+    runtime->test_reason = NULL;
+    runtime->test_active = 0;
+    runtime->test_failures = 0U;
+    runtime->test_terminal = 0;
+    runtime->test_started.QuadPart = 0;
+}
+
+/** Compare two immutable WSH lists exactly. */
+static int wsh_windows_library_values_equal(
+    const wsh_value *left,
+    const wsh_value *right)
+{
+    wsh_string_view left_item;
+    wsh_string_view right_item;
+    size_t index;
+
+    if (wsh_value_count(left) != wsh_value_count(right)) {
+        return 0;
+    }
+    for (index = 0U; index < wsh_value_count(left); ++index) {
+        if (wsh_value_at(left, index, &left_item) != WSH_OK ||
+            wsh_value_at(right, index, &right_item) != WSH_OK ||
+            !wsh_string_view_equal(left_item, right_item)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/** Record an assertion result while allowing the test body to continue. */
+static wsh_result wsh_windows_library_test_record(
+    wsh_windows_runtime *runtime,
+    int passed,
+    wsh_status_builder *status)
+{
+    if (!runtime->test_active) {
+        return WSH_ERR_INVALID;
+    }
+    if (!passed) {
+        runtime->test_failures += 1U;
+    }
+    return wsh_windows_library_success(status);
+}
+
+/** Execute test::assert-file. */
+static wsh_result wsh_windows_library_test_assert_file(
+    wsh_windows_runtime *runtime,
+    const wsh_value *arguments,
+    wsh_status_builder *status)
+{
+    wsh_string_view left_path;
+    wsh_string_view right_path;
+    wsh_string_view encoding;
+    unsigned char *left;
+    unsigned char *right;
+    size_t left_length;
+    size_t right_length;
+    char *left_text;
+    char *right_text;
+    size_t left_text_length;
+    size_t right_text_length;
+    int text;
+    int equal;
+    wsh_result result;
+
+    if ((wsh_value_count(arguments) != 2U &&
+         wsh_value_count(arguments) != 4U) ||
+        !wsh_windows_library_argument(arguments, 0U, &left_path) ||
+        !wsh_windows_library_argument(arguments, 1U, &right_path)) {
+        return WSH_ERR_INVALID;
+    }
+    text = wsh_value_count(arguments) == 4U;
+    if (text && (!wsh_windows_library_argument_is(arguments, 2U, "--text") ||
+        !wsh_windows_library_argument(arguments, 3U, &encoding))) {
+        return WSH_ERR_INVALID;
+    }
+    left = NULL;
+    right = NULL;
+    result = wsh_windows_library_read_bytes(
+        runtime, left_path, &left, &left_length);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_read_bytes(
+            runtime, right_path, &right, &right_length);
+    }
+    left_text = NULL;
+    right_text = NULL;
+    equal = 0;
+    if (result == WSH_OK && !text) {
+        equal = left_length == right_length &&
+            memcmp(left, right, left_length) == 0;
+    } else if (result == WSH_OK) {
+        result = wsh_windows_library_decode_text(
+            runtime,
+            left,
+            left_length,
+            encoding,
+            1,
+            &left_text,
+            &left_text_length);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_decode_text(
+                runtime,
+                right,
+                right_length,
+                encoding,
+                1,
+                &right_text,
+                &right_text_length);
+        }
+        equal = result == WSH_OK && left_text_length == right_text_length &&
+            memcmp(left_text, right_text, left_text_length) == 0;
+    }
+    wsh_windows_release(runtime, right_text);
+    wsh_windows_release(runtime, left_text);
+    wsh_windows_release(runtime, right);
+    wsh_windows_release(runtime, left);
+    return wsh_windows_library_test_record(
+        runtime, result == WSH_OK && equal, status);
+}
+
+/** Execute the stateful test namespace. */
+static wsh_result wsh_windows_library_test(
+    wsh_windows_runtime *runtime,
+    const wsh_runtime_request *request,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    wsh_string_view first;
+    wsh_string_view second;
+    const wsh_value *left;
+    const wsh_value *right;
+    const wsh_value *actual_status;
+    wsh_value_builder *expected_builder;
+    wsh_value *expected;
+    LARGE_INTEGER finished;
+    LARGE_INTEGER frequency;
+    uint64_t duration;
+    size_t index;
+    char buffer[80];
+    int written;
+    int passed;
+    wsh_result result;
+
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::begin"))) {
+        if (runtime->test_active ||
+            wsh_value_count(request->arguments) != 2U ||
+            !wsh_windows_library_argument(request->arguments, 0U, &first) ||
+            !wsh_windows_library_argument(request->arguments, 1U, &second) ||
+            first.length == 0U || second.length == 0U) {
+            return WSH_ERR_INVALID;
+        }
+        result = wsh_windows_library_test_copy(
+            runtime, first, &runtime->test_identifier);
+        if (result == WSH_OK) {
+            result = wsh_windows_library_test_copy(
+                runtime, second, &runtime->test_title);
+        }
+        if (result != WSH_OK) {
+            wsh_windows_library_test_clear(runtime);
+            return result;
+        }
+        runtime->test_active = 1;
+        QueryPerformanceCounter(&runtime->test_started);
+        return wsh_windows_library_success(status);
+    }
+    if (!runtime->test_active) {
+        return WSH_ERR_INVALID;
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::assert"))) {
+        if (wsh_value_count(request->arguments) > 1U) {
+            return WSH_ERR_INVALID;
+        }
+        actual_status = NULL;
+        passed = wsh_context_get_variable(
+            request->context,
+            wsh_string_view_from_cstr("status"),
+            &actual_status) == WSH_OK;
+        for (index = 0U; passed &&
+             index < wsh_value_count(actual_status); ++index) {
+            passed = wsh_value_at(actual_status, index, &first) == WSH_OK &&
+                first.length == 1U && first.data[0] == '0';
+        }
+        return wsh_windows_library_test_record(runtime, passed, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("test::assert-equal"))) {
+        if ((wsh_value_count(request->arguments) != 2U &&
+             wsh_value_count(request->arguments) != 3U) ||
+            !wsh_windows_library_argument(request->arguments, 0U, &first) ||
+            !wsh_windows_library_argument(request->arguments, 1U, &second)) {
+            return WSH_ERR_INVALID;
+        }
+        return wsh_windows_library_test_record(
+            runtime, wsh_string_view_equal(first, second), status);
+    }
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("test::assert-list"))) {
+        if ((wsh_value_count(request->arguments) != 2U &&
+             wsh_value_count(request->arguments) != 3U) ||
+            !wsh_windows_library_argument(request->arguments, 0U, &first) ||
+            !wsh_windows_library_argument(request->arguments, 1U, &second) ||
+            wsh_context_get_variable(
+                request->context, first, &left) != WSH_OK ||
+            wsh_context_get_variable(
+                request->context, second, &right) != WSH_OK) {
+            return WSH_ERR_INVALID;
+        }
+        return wsh_windows_library_test_record(
+            runtime, wsh_windows_library_values_equal(left, right), status);
+    }
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("test::assert-status"))) {
+        actual_status = NULL;
+        result = wsh_context_get_variable(
+            request->context,
+            wsh_string_view_from_cstr("status"),
+            &actual_status);
+        expected_builder = NULL;
+        if (result == WSH_OK) {
+            result = wsh_value_builder_create(NULL, NULL, &expected_builder);
+        }
+        for (index = 0U; result == WSH_OK &&
+             index < wsh_value_count(request->arguments); ++index) {
+            if (!wsh_windows_library_argument(
+                    request->arguments, index, &first)) {
+                result = WSH_ERR_INVALID;
+            } else {
+                result = wsh_value_builder_append(expected_builder, first);
+            }
+        }
+        expected = NULL;
+        if (result == WSH_OK) {
+            result = wsh_value_builder_finish(expected_builder, &expected);
+        }
+        wsh_value_builder_destroy(expected_builder);
+        passed = result == WSH_OK &&
+            wsh_windows_library_values_equal(expected, actual_status);
+        wsh_value_destroy(expected);
+        return result == WSH_OK ?
+            wsh_windows_library_test_record(runtime, passed, status) : result;
+    }
+    if (wsh_string_view_equal(
+            request->subject,
+            wsh_string_view_from_cstr("test::assert-file"))) {
+        return wsh_windows_library_test_assert_file(
+            runtime, request->arguments, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::fail"))) {
+        if (wsh_value_count(request->arguments) != 1U) {
+            return WSH_ERR_INVALID;
+        }
+        return wsh_windows_library_test_record(runtime, 0, status);
+    }
+    if (wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::blocked")) ||
+        wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::skip"))) {
+        if (runtime->test_terminal != 0 ||
+            wsh_value_count(request->arguments) != 1U ||
+            !wsh_windows_library_argument(request->arguments, 0U, &first)) {
+            return WSH_ERR_INVALID;
+        }
+        result = wsh_windows_library_test_copy(
+            runtime, first, &runtime->test_reason);
+        if (result == WSH_OK) {
+            runtime->test_terminal = wsh_string_view_equal(
+                request->subject,
+                wsh_string_view_from_cstr("test::blocked")) ? 1 : 2;
+            result = wsh_windows_library_success(status);
+        }
+        return result;
+    }
+    if (!wsh_string_view_equal(
+            request->subject, wsh_string_view_from_cstr("test::end")) ||
+        wsh_value_count(request->arguments) != 0U) {
+        return WSH_ERR_INVALID;
+    }
+    QueryPerformanceCounter(&finished);
+    QueryPerformanceFrequency(&frequency);
+    duration = frequency.QuadPart > 0 ?
+        (uint64_t)(finished.QuadPart - runtime->test_started.QuadPart) *
+            1000U / (uint64_t)frequency.QuadPart : 0U;
+    result = wsh_windows_library_append_field(
+        runtime, output, "id", runtime->test_identifier);
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "title", runtime->test_title);
+    }
+    if (result == WSH_OK) {
+        result = wsh_windows_library_append_field(
+            runtime,
+            output,
+            "verdict",
+            runtime->test_terminal == 1 ? "Blocked" :
+            runtime->test_terminal == 2 ? "Not run" :
+            runtime->test_failures == 0U ? "Pass" : "Fail");
+    }
+    written = snprintf(
+        buffer, sizeof(buffer), "%llu", (unsigned long long)duration);
+    if (result == WSH_OK && written > 0 &&
+        (size_t)written < sizeof(buffer)) {
+        result = wsh_windows_library_append_field(
+            runtime, output, "duration-ms", buffer);
+    }
+    passed = runtime->test_failures == 0U && runtime->test_terminal == 0;
+    wsh_windows_library_test_clear(runtime);
+    if (result != WSH_OK) {
+        return result;
+    }
+    return passed ? wsh_windows_library_success(status) :
+        wsh_windows_library_false(status);
+}
+
 /** Dispatch one abstract operation to the concrete Windows runtime. */
 static wsh_result wsh_windows_invoke(
     void *user_data,
@@ -4625,6 +9553,51 @@ static wsh_result wsh_windows_invoke(
     if (request->operation == WSH_RUNTIME_PROCESS_SUBSTITUTION) {
         return wsh_windows_process_substitution(
             runtime, request, output, status);
+    }
+    if (request->operation == WSH_RUNTIME_LIBRARY) {
+        if (wsh_library_find(request->subject) == NULL) {
+            return WSH_ERR_INVALID;
+        }
+        if (request->subject.length >= 9U &&
+            memcmp(request->subject.data, "library::", 9U) == 0) {
+            return wsh_windows_library_registry(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 6U &&
+            memcmp(request->subject.data, "text::", 6U) == 0) {
+            return wsh_windows_library_text(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 6U &&
+            memcmp(request->subject.data, "path::", 6U) == 0) {
+            return wsh_windows_library_path(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 4U &&
+            memcmp(request->subject.data, "fs::", 4U) == 0) {
+            return wsh_windows_library_filesystem(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 6U &&
+            memcmp(request->subject.data, "time::", 6U) == 0) {
+            return wsh_windows_library_time(request, output, status);
+        }
+        if (request->subject.length >= 8U &&
+            memcmp(request->subject.data, "system::", 8U) == 0) {
+            return wsh_windows_library_system(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 9U &&
+            memcmp(request->subject.data, "process::", 9U) == 0) {
+            return wsh_windows_library_process(
+                runtime, request, output, status);
+        }
+        if (request->subject.length >= 6U &&
+            memcmp(request->subject.data, "test::", 6U) == 0) {
+            return wsh_windows_library_test(
+                runtime, request, output, status);
+        }
+        return WSH_ERR_INVALID;
     }
     return WSH_ERR_INVALID;
 }
