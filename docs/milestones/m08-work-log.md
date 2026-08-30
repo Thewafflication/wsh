@@ -25,6 +25,7 @@ total.
 | 2026-08-30 #2 | Implement | Add ABI conformance and misuse test linked against the static SDK using only public headers | Commit `7f3527a` |
 | 2026-08-30 #3 | Implement | Add C embedding host example built against public headers and the static library | Commit `89fd0e4` |
 | 2026-08-30 #4 | Implement | Run the ABI conformance cases against the shared library for static/shared parity | Commit `170f937` |
+| 2026-08-30 #5 | Implement | Compile the core sources into the shared library so the DLL exports the whole ABI; add a Python ctypes FFI host | Commit `048c664` |
 
 ## Verification Log
 
@@ -35,17 +36,22 @@ total.
 | 2026-08-30 | Fast unit subset incl. new test (post `7f3527a`) | Pass (5/5) | Local CTest run |
 | 2026-08-30 | `ctest --preset x64-debug -R embedding-host-example` (post `89fd0e4`) | Pass (deterministic host output) | Local CTest run |
 | 2026-08-30 | `ctest --preset x64-debug -R abi-conformance` (post `170f937`) | Pass (2/2 static + shared) | Local CTest run |
+| 2026-08-30 | `python host.py wshlib.dll` (pre-fix) | Fail: `wsh_context_create` not found in DLL | Defect D-0801 |
+| 2026-08-30 | Fast unit + embedding subset (post `048c664`) | Pass (7/7) | Local CTest run |
+| 2026-08-30 | `ctest --preset x64-debug -R embedding-host-python` (post `048c664`) | Pass (FFI host) | Local CTest run |
 
 ## Decisions and Scope Changes
 
 | Decision or change | Authority | Impact | Reference |
 | --- | --- | --- | --- |
 | Proceed into M8 after M7 completion | Owner request ("M8 plan looks good, work until we run out of tokens") | Begins the Embedding SDK milestone under the accepted plan | This log |
+| Compile the core sources directly into the shared library and link the runtime instead of the static core archive | Defect D-0801 root cause; ADR-0005 requires the DLL to expose ABI 1 | The whole ABI is present in and exported from the DLL; shared consumers resolve it from the DLL import definition | Commit `048c664`, ADR-0005 |
 
 ## Problems, Defects, and Recovery
 
 | Item | Effect | Response | Status or owner |
 | --- | --- | --- | --- |
+| D-0801: `wsh_shared` was built from `wshlib.c` linking the static core archive | The linker pulled only version objects referenced by `wshlib.c`; the DLL omitted `wsh_context_create` and the rest of the ABI. The C shared "parity" test passed only because it also linked static `wsh_core`, masking the gap | Compiled `WSH_CORE_SOURCES` into `wsh_shared`; a Python ctypes host confirmed the symbols now resolve from the DLL | Closed (`048c664`) |
 
 ## Measurements
 
@@ -60,6 +66,7 @@ total.
 | ABI conformance/misuse test (`7f3527a`) | ~40,000 est. | Not reported | Claude Code, assistant estimate |
 | C embedding host example (`89fd0e4`) | ~22,000 est. | Not reported | Claude Code, assistant estimate |
 | Shared conformance parity (`170f937`) | ~14,000 est. | Not reported | Claude Code, assistant estimate |
+| ABI export fix + Python FFI host (`048c664`) | ~48,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
