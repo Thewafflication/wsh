@@ -142,6 +142,28 @@ set_tests_properties(
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
+# The second-language FFI host proves the shared DLL exports the whole ABI to
+# a non-C caller. It is optional so a host without Python still configures.
+find_program(WSH_PYTHON_EXECUTABLE NAMES python)
+if(WSH_PYTHON_EXECUTABLE)
+    add_test(
+        NAME embedding-host-python
+        COMMAND
+            "${WSH_PYTHON_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/examples/embedding/host.py"
+            "$<TARGET_FILE:wsh_shared>"
+    )
+    set_tests_properties(
+        embedding-host-python
+        PROPERTIES
+            LABELS "M8;example;embedding;ffi"
+            PASS_REGULAR_EXPRESSION "host.py: ok"
+            TIMEOUT "${WSH_TEST_TIMEOUT}"
+    )
+else()
+    message(STATUS "Python not found; skipping embedding-host-python FFI test")
+endif()
+
 add_test(NAME frontend-unit COMMAND frontend-tests)
 set_tests_properties(
     frontend-unit

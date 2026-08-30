@@ -73,13 +73,19 @@ endfunction()
 
 add_compile_options(-std=c99 -Wall -Werror)
 
-add_library(wsh_core STATIC
+# Shared by the static core archive and the shared embedding library. The
+# shared library must compile these objects directly so the whole embedding
+# ABI is present in the DLL; linking the static archive would export only the
+# objects referenced by wshlib.c and silently omit the rest of the surface.
+set(WSH_CORE_SOURCES
     src/evaluator.c
     src/parser.c
     src/portable_core.c
     src/sha256.c
     src/standard_library.c
 )
+
+add_library(wsh_core STATIC ${WSH_CORE_SOURCES})
 target_include_directories(wsh_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(wsh_core PUBLIC WCRT::WCRT)
 
@@ -97,7 +103,7 @@ target_compile_definitions(wsh_windows_runtime PRIVATE
     WSH_WCRT_VERSION="${WSH_WCRT_VERSION}")
 
 add_library(wsh_static STATIC src/wshlib.c)
-add_library(wsh_shared SHARED src/wshlib.c)
+add_library(wsh_shared SHARED src/wshlib.c ${WSH_CORE_SOURCES})
 
 set_target_properties(wsh_static PROPERTIES
     OUTPUT_NAME "wshlib"
@@ -129,7 +135,11 @@ target_include_directories(wsh_shared
 )
 
 target_link_libraries(wsh_static PUBLIC wsh_core)
-target_link_libraries(wsh_shared PUBLIC wsh_core)
+# The shared library compiles the core objects directly (see WSH_CORE_SOURCES),
+# so it links only the runtime rather than the static core archive. This keeps
+# the full ABI inside the DLL and lets consumers resolve it from the DLL import
+# definition instead of a statically linked copy.
+target_link_libraries(wsh_shared PUBLIC WCRT::WCRT)
 
 target_compile_definitions(wsh_static PRIVATE
     WSH_VERSION="${PROJECT_VERSION}"
