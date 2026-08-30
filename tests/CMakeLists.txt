@@ -51,6 +51,16 @@ target_include_directories(
 )
 target_link_libraries(abi-conformance-tests PRIVATE wsh_static)
 
+# The identical cases run against the shared library to prove the static and
+# shared embedding surfaces are behaviorally equivalent.
+add_executable(abi-conformance-shared-tests abi_conformance_tests.c)
+target_include_directories(
+    abi-conformance-shared-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(abi-conformance-shared-tests PRIVATE wsh_shared)
+
 # The public C host example must build against the installed public headers
 # only and link the static embedding library, proving no internal type leaks.
 add_executable(embedding-host-example
@@ -75,6 +85,7 @@ target_include_directories(
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(abi-conformance-tests)
+wsh_configure_executable(abi-conformance-shared-tests)
 wsh_configure_executable(embedding-host-example)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
@@ -111,6 +122,14 @@ set_tests_properties(
     abi-conformance
     PROPERTIES
         LABELS "M8;unit;embedding"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(NAME abi-conformance-shared COMMAND abi-conformance-shared-tests)
+set_tests_properties(
+    abi-conformance-shared
+    PROPERTIES
+        LABELS "M8;unit;embedding;shared"
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
