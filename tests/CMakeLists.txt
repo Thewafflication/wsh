@@ -143,23 +143,41 @@ set_tests_properties(
 )
 
 # The second-language FFI host proves the shared DLL exports the whole ABI to
-# a non-C caller. It is optional so a host without Python still configures.
+# a non-C caller. It is optional so a host without Python still configures, and
+# it only runs when the interpreter's bitness matches the target: a 64-bit
+# interpreter cannot load a 32-bit DLL and vice versa.
 find_program(WSH_PYTHON_EXECUTABLE NAMES python)
 if(WSH_PYTHON_EXECUTABLE)
-    add_test(
-        NAME embedding-host-python
-        COMMAND
-            "${WSH_PYTHON_EXECUTABLE}"
-            "${CMAKE_SOURCE_DIR}/examples/embedding/host.py"
-            "$<TARGET_FILE:wsh_shared>"
+    execute_process(
+        COMMAND "${WSH_PYTHON_EXECUTABLE}" -c "import struct;print(struct.calcsize('P')*8)"
+        OUTPUT_VARIABLE WSH_PYTHON_BITS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
     )
-    set_tests_properties(
-        embedding-host-python
-        PROPERTIES
-            LABELS "M8;example;embedding;ffi"
-            PASS_REGULAR_EXPRESSION "host.py: ok"
-            TIMEOUT "${WSH_TEST_TIMEOUT}"
-    )
+    if(WSH_TARGET_ARCHITECTURE STREQUAL "x86")
+        set(WSH_TARGET_BITS "32")
+    else()
+        set(WSH_TARGET_BITS "64")
+    endif()
+    if(WSH_PYTHON_BITS STREQUAL WSH_TARGET_BITS)
+        add_test(
+            NAME embedding-host-python
+            COMMAND
+                "${WSH_PYTHON_EXECUTABLE}"
+                "${CMAKE_SOURCE_DIR}/examples/embedding/host.py"
+                "$<TARGET_FILE:wsh_shared>"
+        )
+        set_tests_properties(
+            embedding-host-python
+            PROPERTIES
+                LABELS "M8;example;embedding;ffi"
+                PASS_REGULAR_EXPRESSION "host.py: ok"
+                TIMEOUT "${WSH_TEST_TIMEOUT}"
+        )
+    else()
+        message(STATUS
+            "Python is ${WSH_PYTHON_BITS}-bit but target is ${WSH_TARGET_BITS}-bit; "
+            "skipping embedding-host-python FFI test")
+    endif()
 else()
     message(STATUS "Python not found; skipping embedding-host-python FFI test")
 endif()
