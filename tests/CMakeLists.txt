@@ -43,6 +43,14 @@ target_link_libraries(
         wsh_core
 )
 
+add_executable(abi-conformance-tests abi_conformance_tests.c)
+target_include_directories(
+    abi-conformance-tests
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(abi-conformance-tests PRIVATE wsh_static)
+
 add_executable(
     frontend-tests
     frontend_tests.c
@@ -55,6 +63,7 @@ target_include_directories(
         "${CMAKE_SOURCE_DIR}/src"
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
+wsh_configure_executable(abi-conformance-tests)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
 wsh_configure_executable(evaluator-tests)
@@ -82,6 +91,14 @@ set_tests_properties(
     print-abi-smoke
     PROPERTIES
         PASS_REGULAR_EXPRESSION "wsh embedding ABI 1"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(NAME abi-conformance COMMAND abi-conformance-tests)
+set_tests_properties(
+    abi-conformance
+    PROPERTIES
+        LABELS "M8;unit;embedding"
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
