@@ -239,6 +239,28 @@ set_tests_properties(
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
+# Prove the installed SDK (headers, import library, DLL) is consumable: install
+# to a staging prefix, compile the host example against the installed headers
+# only, and run it against the installed DLL.
+add_test(
+    NAME embedding-installed-sdk
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/verify-installed-sdk.ps1"
+        -Compiler "${CMAKE_C_COMPILER}"
+        -BuildDir "${CMAKE_BINARY_DIR}"
+        -Config "$<CONFIG>"
+        -Source "${CMAKE_SOURCE_DIR}/examples/embedding/host.c"
+        -StageDir "${CMAKE_BINARY_DIR}/sdk-stage/$<CONFIG>"
+)
+set_tests_properties(
+    embedding-installed-sdk
+    PROPERTIES
+        LABELS "M8;embedding;example;install"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
 add_test(
     NAME frontend-process
     COMMAND
