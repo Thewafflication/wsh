@@ -22,6 +22,8 @@ def main() -> int:
 
     library = ctypes.CDLL(sys.argv[1])
 
+    library.wsh_embedding_abi_version.restype = ctypes.c_uint
+    library.wsh_embedding_abi_version.argtypes = []
     library.wsh_get_version_string.restype = ctypes.c_char_p
     library.wsh_get_version_string.argtypes = []
     library.wsh_get_runtime_name.restype = ctypes.c_char_p
@@ -38,17 +40,22 @@ def main() -> int:
     library.wsh_context_destroy.restype = None
     library.wsh_context_destroy.argtypes = [ctypes.c_void_p]
 
+    abi = library.wsh_embedding_abi_version()
     version = library.wsh_get_version_string()
     runtime = library.wsh_get_runtime_name()
+    if abi != 1:
+        sys.stderr.write("host.py: unexpected embedding ABI %d\n" % abi)
+        return 1
     if not version:
         sys.stderr.write("host.py: empty version string\n")
         return 1
     if runtime != b"wcrt":
         sys.stderr.write("host.py: unexpected runtime name\n")
         return 1
-    print("host.py: wsh version %s, runtime %s" % (
+    print("host.py: wsh version %s, runtime %s, ABI %d" % (
         version.decode("utf-8"),
         runtime.decode("utf-8"),
+        abi,
     ))
 
     # WSH_OK is 0. A null options pointer selects the portable defaults.

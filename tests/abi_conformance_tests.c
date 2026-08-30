@@ -62,6 +62,8 @@ static wsh_result make_single_value(const char *item, wsh_value **out_value)
 static int test_abi_identity(void)
 {
     CHECK(WSH_EMBEDDING_ABI == 1u);
+    /* The runtime accessor must agree with the compile-time macro. */
+    CHECK(wsh_embedding_abi_version() == WSH_EMBEDDING_ABI);
 
     CHECK(wsh_get_version_string() != NULL);
     CHECK(wsh_get_version_string()[0] != '\0');

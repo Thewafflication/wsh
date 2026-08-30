@@ -23,6 +23,7 @@ wsh_context_set_variable
 wsh_context_unset_variable
 wsh_context_variable_at
 wsh_context_variable_count
+wsh_embedding_abi_version
 wsh_evaluate
 wsh_evaluator_clear_exit
 wsh_evaluator_create
