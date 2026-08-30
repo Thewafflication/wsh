@@ -29,6 +29,7 @@ total.
 | 2026-08-30 #6 | Implement | Add the ABI 1 export manifest and a verification test asserting every public symbol is exported | Commit `5dc42ad` |
 | 2026-08-30 #7 | Implement | Restrict the DLL to export exactly the ABI 1 surface via WSH_API markers; enforce no-extra-exports | Commit `20f7931` |
 | 2026-08-30 #8 | Verify | Verify the embedding suite on x86; gate the Python FFI test on interpreter/target bitness | Commit `874933a` |
+| 2026-08-30 #9 | Implement | Add `wsh_embedding_abi_version()` runtime accessor; assert it in the C and FFI hosts (manifest now 101) | Commit `7c1d6a8` |
 
 ## Verification Log
 
@@ -49,6 +50,7 @@ total.
 | 2026-08-30 | `cmake --build --preset x86-debug` export inspection | 100 undecorated `wsh_` exports (clean cdecl names on 32-bit) | `x86-debug/.../wshlib.def` |
 | 2026-08-30 | x86 embedding C suite + manifest (post `874933a`) | Pass (4/4); FFI test correctly skipped (64-bit interpreter vs 32-bit target) | Local CTest run |
 | 2026-08-30 | x64 FFI test after gating (post `874933a`) | Pass (runs when bitness matches) | Local CTest run |
+| 2026-08-30 | Embedding suite with ABI accessor (post `7c1d6a8`) | Pass (5/5); DLL exports exactly 101 ABI 1 symbols | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -70,7 +72,7 @@ total.
 | Measure | Value | Source or interpretation |
 | --- | ---: | --- |
 | M8 CTest cases added | 5 | `abi-conformance`, `abi-conformance-shared`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest` (now enforcing an exact surface) |
-| ABI 1 public symbols (manifest) | 100 | `tests/embedding/abi1-exports.txt` |
+| ABI 1 public symbols (manifest) | 101 | `tests/embedding/abi1-exports.txt` (incl. `wsh_embedding_abi_version`) |
 | DLL exported symbols before restriction | 286 | `wshlib.def` under export-all; runtime/CRT/internal leak |
 | DLL exported symbols after restriction | 100 | `wshlib.def` under `WSH_API`; exactly the ABI 1 manifest |
 | Defects found and closed | 1 | D-0801 (shared library omitted the ABI) |
@@ -87,6 +89,7 @@ total.
 | ABI 1 export manifest + verification (`5dc42ad`) | ~34,000 est. | Not reported | Claude Code, assistant estimate |
 | Export restriction to ABI 1 surface (`20f7931`) | ~40,000 est. | Not reported | Claude Code, assistant estimate |
 | x86 verification + FFI bitness gate (`874933a`) | ~30,000 est. | Not reported | Claude Code, assistant estimate |
+| Runtime ABI version accessor (`7c1d6a8`) | ~24,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -109,8 +112,10 @@ exported. All committed and pushed; validated on `x64-debug`.
    any missing or unexpected export. Remaining sub-item: a header-only example
    compilation test that builds the examples against the *installed* headers in
    isolation (currently they build against the in-tree include directory).
-2. **Version resource.** Verify the shared library's version resource and
-   `SOVERSION`/ABI value against `WSH_EMBEDDING_ABI`.
+2. **Version resource.** A runtime `wsh_embedding_abi_version()` accessor now
+   exposes the ABI value for negotiation (`7c1d6a8`). Still to do: verify the
+   shared library's PE version resource and `SOVERSION` against
+   `WSH_EMBEDDING_ABI`/`PROJECT_VERSION`.
 3. **WSP phase artifacts.** Produce the M8 Specify (requirements under
    `docs/requirements/m8`), Design (`m08-design.md`), controlled test
    specifications (`docs/tests/m8`), traceability wiring, TeX evidence, review
