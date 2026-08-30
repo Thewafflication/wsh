@@ -187,6 +187,22 @@ find_program(
 )
 
 add_test(
+    NAME abi-export-manifest
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/verify-abi-exports.ps1"
+        -SharedLibrary "$<TARGET_FILE:wsh_shared>"
+        -Manifest "${CMAKE_CURRENT_SOURCE_DIR}/embedding/abi1-exports.txt"
+)
+set_tests_properties(
+    abi-export-manifest
+    PROPERTIES
+        LABELS "M8;embedding;quality"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(
     NAME frontend-process
     COMMAND
         "${WSH_POWERSHELL_EXECUTABLE}"
