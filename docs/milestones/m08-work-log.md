@@ -23,6 +23,8 @@ total.
 | --- | --- | --- | --- |
 | 2026-08-30 #1 | Baseline/Plan | Draft accepted M8 plan; record M7 as complete in the status record | Commit `eb755d6` |
 | 2026-08-30 #2 | Implement | Add ABI conformance and misuse test linked against the static SDK using only public headers | Commit `7f3527a` |
+| 2026-08-30 #3 | Implement | Add C embedding host example built against public headers and the static library | Commit `89fd0e4` |
+| 2026-08-30 #4 | Implement | Run the ABI conformance cases against the shared library for static/shared parity | Commit `170f937` |
 
 ## Verification Log
 
@@ -31,6 +33,8 @@ total.
 | 2026-08-30 | `cmake --build --preset x64-debug` (baseline `60b8061`) | Up to date; fast unit tests 4/4 | Local CTest run |
 | 2026-08-30 | `ctest --preset x64-debug -R abi-conformance` (post `7f3527a`) | Pass (4/4 cases) | Local CTest run |
 | 2026-08-30 | Fast unit subset incl. new test (post `7f3527a`) | Pass (5/5) | Local CTest run |
+| 2026-08-30 | `ctest --preset x64-debug -R embedding-host-example` (post `89fd0e4`) | Pass (deterministic host output) | Local CTest run |
+| 2026-08-30 | `ctest --preset x64-debug -R abi-conformance` (post `170f937`) | Pass (2/2 static + shared) | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -54,6 +58,8 @@ total.
 | --- | ---: | ---: | --- |
 | M8 Baseline/Plan (`eb755d6`) | ~30,000 est. | Not reported | Claude Code, assistant estimate |
 | ABI conformance/misuse test (`7f3527a`) | ~40,000 est. | Not reported | Claude Code, assistant estimate |
+| C embedding host example (`89fd0e4`) | ~22,000 est. | Not reported | Claude Code, assistant estimate |
+| Shared conformance parity (`170f937`) | ~14,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
