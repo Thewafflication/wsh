@@ -28,6 +28,7 @@ total.
 | 2026-08-30 #5 | Implement | Compile the core sources into the shared library so the DLL exports the whole ABI; add a Python ctypes FFI host | Commit `048c664` |
 | 2026-08-30 #6 | Implement | Add the ABI 1 export manifest and a verification test asserting every public symbol is exported | Commit `5dc42ad` |
 | 2026-08-30 #7 | Implement | Restrict the DLL to export exactly the ABI 1 surface via WSH_API markers; enforce no-extra-exports | Commit `20f7931` |
+| 2026-08-30 #8 | Verify | Verify the embedding suite on x86; gate the Python FFI test on interpreter/target bitness | Commit `874933a` |
 
 ## Verification Log
 
@@ -44,6 +45,10 @@ total.
 | 2026-08-30 | `ctest --preset x64-debug -R abi-export-manifest` (post `5dc42ad`) | Pass (all 100 ABI 1 symbols exported) | Local CTest run |
 | 2026-08-30 | DLL export count after restriction (post `20f7931`) | 100 (was 286); exactly the manifest, no CRT/runtime/internal | `wshlib.def` |
 | 2026-08-30 | Full embedding + unit subset (post `20f7931`) | Pass (9/9) | Local CTest run |
+| 2026-08-30 | Core executables direct run (post `20f7931`) | Pass (portable-core, evaluator, parser) | Local run |
+| 2026-08-30 | `cmake --build --preset x86-debug` export inspection | 100 undecorated `wsh_` exports (clean cdecl names on 32-bit) | `x86-debug/.../wshlib.def` |
+| 2026-08-30 | x86 embedding C suite + manifest (post `874933a`) | Pass (4/4); FFI test correctly skipped (64-bit interpreter vs 32-bit target) | Local CTest run |
+| 2026-08-30 | x64 FFI test after gating (post `874933a`) | Pass (runs when bitness matches) | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -81,6 +86,7 @@ total.
 | ABI export fix + Python FFI host (`048c664`) | ~48,000 est. | Not reported | Claude Code, assistant estimate |
 | ABI 1 export manifest + verification (`5dc42ad`) | ~34,000 est. | Not reported | Claude Code, assistant estimate |
 | Export restriction to ABI 1 surface (`20f7931`) | ~40,000 est. | Not reported | Claude Code, assistant estimate |
+| x86 verification + FFI bitness gate (`874933a`) | ~30,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -110,8 +116,12 @@ exported. All committed and pushed; validated on `x64-debug`.
    specifications (`docs/tests/m8`), traceability wiring, TeX evidence, review
    (`m08-review.md`), and closeout (`m08-closeout.md`); then record the
    post-M8 roadmap recalibration.
-4. **Cross-architecture.** Re-run the embedding suite on `x86` and `arm64`
-   before the exit claim.
+4. **Cross-architecture.** `x86` is verified: the export set is exactly the
+   100 undecorated symbols and the C embedding suite passes (the FFI test is
+   correctly skipped for the 64-bit interpreter). `arm64` cross-compiles but
+   is not executable on this x64 host; run its embedding suite on native
+   ARM64 hardware or emulation, ideally with an arm64 interpreter for the FFI
+   host, before the exit claim.
 
 **Next responsible party:** the maintainer or a subsequent assistant session,
 continuing M8 from the export-restriction task.
