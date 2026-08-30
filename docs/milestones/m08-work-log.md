@@ -30,6 +30,8 @@ total.
 | 2026-08-30 #7 | Implement | Restrict the DLL to export exactly the ABI 1 surface via WSH_API markers; enforce no-extra-exports | Commit `20f7931` |
 | 2026-08-30 #8 | Verify | Verify the embedding suite on x86; gate the Python FFI test on interpreter/target bitness | Commit `874933a` |
 | 2026-08-30 #9 | Implement | Add `wsh_embedding_abi_version()` runtime accessor; assert it in the C and FFI hosts (manifest now 101) | Commit `7c1d6a8` |
+| 2026-08-30 #10 | Design | Write the M8 design document (composition, export control, ownership, conformance, hosts, versioning) | Commit `8209d16` |
+| 2026-08-30 #11 | Implement | Add the public header hygiene compile/link test covering all four ABI headers | Commit `9ed8936` |
 
 ## Verification Log
 
@@ -51,6 +53,8 @@ total.
 | 2026-08-30 | x86 embedding C suite + manifest (post `874933a`) | Pass (4/4); FFI test correctly skipped (64-bit interpreter vs 32-bit target) | Local CTest run |
 | 2026-08-30 | x64 FFI test after gating (post `874933a`) | Pass (runs when bitness matches) | Local CTest run |
 | 2026-08-30 | Embedding suite with ABI accessor (post `7c1d6a8`) | Pass (5/5); DLL exports exactly 101 ABI 1 symbols | Local CTest run |
+| 2026-08-30 | Embedding suite with header hygiene (post `9ed8936`) | Pass (6/6) | Local CTest run |
+| 2026-08-30 | DLL PE version resource inspection | Empty FileVersion/ProductVersion; TinyCC embeds no VERSIONINFO | PowerShell `VersionInfo` |
 
 ## Decisions and Scope Changes
 
@@ -71,7 +75,7 @@ total.
 
 | Measure | Value | Source or interpretation |
 | --- | ---: | --- |
-| M8 CTest cases added | 5 | `abi-conformance`, `abi-conformance-shared`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest` (now enforcing an exact surface) |
+| M8 CTest cases added | 6 | `abi-conformance`, `abi-conformance-shared`, `abi-header-hygiene`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest` (enforcing an exact surface) |
 | ABI 1 public symbols (manifest) | 101 | `tests/embedding/abi1-exports.txt` (incl. `wsh_embedding_abi_version`) |
 | DLL exported symbols before restriction | 286 | `wshlib.def` under export-all; runtime/CRT/internal leak |
 | DLL exported symbols after restriction | 100 | `wshlib.def` under `WSH_API`; exactly the ABI 1 manifest |
@@ -90,6 +94,8 @@ total.
 | Export restriction to ABI 1 surface (`20f7931`) | ~40,000 est. | Not reported | Claude Code, assistant estimate |
 | x86 verification + FFI bitness gate (`874933a`) | ~30,000 est. | Not reported | Claude Code, assistant estimate |
 | Runtime ABI version accessor (`7c1d6a8`) | ~24,000 est. | Not reported | Claude Code, assistant estimate |
+| M8 design document (`8209d16`) | ~22,000 est. | Not reported | Claude Code, assistant estimate |
+| Public header hygiene test (`9ed8936`) | ~18,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -107,20 +113,23 @@ exported. All committed and pushed; validated on `x64-debug`.
 
 **Remaining M8 work for the next session:**
 
-1. **Export surface — done (`20f7931`).** The DLL now exports exactly the 100
-   ABI 1 symbols via `WSH_API` markers, and `verify-abi-exports.ps1` fails on
-   any missing or unexpected export. Remaining sub-item: a header-only example
-   compilation test that builds the examples against the *installed* headers in
-   isolation (currently they build against the in-tree include directory).
+1. **Export surface — done (`20f7931`).** The DLL now exports exactly the ABI 1
+   symbols via `WSH_API` markers, and `verify-abi-exports.ps1` fails on any
+   missing or unexpected export. Header self-containment and no-internal-type
+   are covered by `abi-header-hygiene` (`9ed8936`). Remaining sub-item: a test
+   that builds an example against the *installed* headers/import library in
+   isolation (current checks use the in-tree include directory).
 2. **Version resource.** A runtime `wsh_embedding_abi_version()` accessor now
-   exposes the ABI value for negotiation (`7c1d6a8`). Still to do: verify the
-   shared library's PE version resource and `SOVERSION` against
-   `WSH_EMBEDDING_ABI`/`PROJECT_VERSION`.
-3. **WSP phase artifacts.** Produce the M8 Specify (requirements under
-   `docs/requirements/m8`), Design (`m08-design.md`), controlled test
-   specifications (`docs/tests/m8`), traceability wiring, TeX evidence, review
-   (`m08-review.md`), and closeout (`m08-closeout.md`); then record the
-   post-M8 roadmap recalibration.
+   exposes the ABI value for negotiation (`7c1d6a8`). The DLL carries no PE
+   version resource — TinyCC embeds no `VERSIONINFO` from CMake's `VERSION`, and
+   adding one needs a resource compiler absent from the TinyCC toolchain. Either
+   introduce a resource-compilation step or record the resource omission as an
+   approved release limitation; `SOVERSION` remains asserted through the build.
+3. **WSP phase artifacts.** Design is done (`m08-design.md`, `8209d16`). Still
+   to produce: M8 Specify (requirements under `docs/requirements/m8`),
+   controlled test specifications (`docs/tests/m8`), traceability wiring, TeX
+   evidence, review (`m08-review.md`), and closeout (`m08-closeout.md`); then
+   record the post-M8 roadmap recalibration.
 4. **Cross-architecture.** `x86` is verified: the export set is exactly the
    100 undecorated symbols and the C embedding suite passes (the FFI test is
    correctly skipped for the 64-bit interpreter). `arm64` cross-compiles but
@@ -129,4 +138,5 @@ exported. All committed and pushed; validated on `x64-debug`.
    host, before the exit claim.
 
 **Next responsible party:** the maintainer or a subsequent assistant session,
-continuing M8 from the export-restriction task.
+continuing M8 from the installed-header compilation test and the WSP Specify /
+traceability / evidence artifacts.
