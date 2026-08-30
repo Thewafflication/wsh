@@ -51,6 +51,17 @@ target_include_directories(
 )
 target_link_libraries(abi-conformance-tests PRIVATE wsh_static)
 
+# The public C host example must build against the installed public headers
+# only and link the static embedding library, proving no internal type leaks.
+add_executable(embedding-host-example
+    "${CMAKE_SOURCE_DIR}/examples/embedding/host.c")
+target_include_directories(
+    embedding-host-example
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(embedding-host-example PRIVATE wsh_static)
+
 add_executable(
     frontend-tests
     frontend_tests.c
@@ -64,6 +75,7 @@ target_include_directories(
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(abi-conformance-tests)
+wsh_configure_executable(embedding-host-example)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
 wsh_configure_executable(evaluator-tests)
@@ -99,6 +111,15 @@ set_tests_properties(
     abi-conformance
     PROPERTIES
         LABELS "M8;unit;embedding"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(NAME embedding-host-example COMMAND embedding-host-example)
+set_tests_properties(
+    embedding-host-example
+    PROPERTIES
+        LABELS "M8;example;embedding"
+        PASS_REGULAR_EXPRESSION "host: ok"
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
