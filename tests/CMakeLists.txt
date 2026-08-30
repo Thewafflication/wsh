@@ -51,6 +51,16 @@ target_include_directories(
 )
 target_link_libraries(abi-conformance-tests PRIVATE wsh_static)
 
+# Every public embedding header must compile standalone and link from the
+# static library using no internal type.
+add_executable(abi-header-hygiene abi_header_hygiene.c)
+target_include_directories(
+    abi-header-hygiene
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(abi-header-hygiene PRIVATE wsh_static)
+
 # The identical cases run against the shared library to prove the static and
 # shared embedding surfaces are behaviorally equivalent.
 add_executable(abi-conformance-shared-tests abi_conformance_tests.c)
@@ -85,6 +95,7 @@ target_include_directories(
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(abi-conformance-tests)
+wsh_configure_executable(abi-header-hygiene)
 wsh_configure_executable(abi-conformance-shared-tests)
 wsh_configure_executable(embedding-host-example)
 wsh_configure_executable(portable-core-tests)
@@ -122,6 +133,14 @@ set_tests_properties(
     abi-conformance
     PROPERTIES
         LABELS "M8;unit;embedding"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(NAME abi-header-hygiene COMMAND abi-header-hygiene)
+set_tests_properties(
+    abi-header-hygiene
+    PROPERTIES
+        LABELS "M8;unit;embedding;quality"
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
