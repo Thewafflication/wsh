@@ -9,6 +9,8 @@
 #ifndef WSH_PARSER_H
 #define WSH_PARSER_H
 
+#include "wsh/api.h"
+
 #include <stddef.h>
 
 #include "wsh/core.h"
@@ -219,7 +221,7 @@ typedef struct wsh_parse_tree wsh_parse_tree;
  * Initialize conservative portable parser options.
  * @param out_options Required destination.
  */
-void wsh_parser_options_init(wsh_parser_options *out_options);
+WSH_API void wsh_parser_options_init(wsh_parser_options *out_options);
 
 /**
  * Lex one complete decoded source without performing an external effect.
@@ -228,7 +230,7 @@ void wsh_parser_options_init(wsh_parser_options *out_options);
  * @param out_stream Receives the owned immutable stream on success.
  * @return WSH_OK or an argument/resource/internal error.
  */
-wsh_result wsh_lex(
+WSH_API wsh_result wsh_lex(
     const wsh_parser_options *options,
     const wsh_source *source,
     wsh_token_stream **out_stream);
@@ -237,14 +239,14 @@ wsh_result wsh_lex(
  * Destroy a token stream.
  * @param stream Owned stream; null is accepted.
  */
-void wsh_token_stream_destroy(wsh_token_stream *stream);
+WSH_API void wsh_token_stream_destroy(wsh_token_stream *stream);
 
 /**
  * Return the lexical status.
  * @param stream Token-stream owner.
  * @return Complete, incomplete, or error.
  */
-wsh_syntax_status wsh_token_stream_status(
+WSH_API wsh_syntax_status wsh_token_stream_status(
     const wsh_token_stream *stream);
 
 /**
@@ -252,7 +254,7 @@ wsh_syntax_status wsh_token_stream_status(
  * @param stream Token-stream owner.
  * @return Token count, or zero for null.
  */
-size_t wsh_token_stream_count(const wsh_token_stream *stream);
+WSH_API size_t wsh_token_stream_count(const wsh_token_stream *stream);
 
 /**
  * Inspect one token.
@@ -261,7 +263,7 @@ size_t wsh_token_stream_count(const wsh_token_stream *stream);
  * @param out_token Receives a borrowed view.
  * @return WSH_OK or WSH_ERR_INVALID.
  */
-wsh_result wsh_token_stream_at(
+WSH_API wsh_result wsh_token_stream_at(
     const wsh_token_stream *stream,
     size_t index,
     wsh_token_view *out_token);
@@ -271,7 +273,7 @@ wsh_result wsh_token_stream_at(
  * @param stream Token-stream owner.
  * @return Diagnostic count, or zero for null.
  */
-size_t wsh_token_stream_diagnostic_count(
+WSH_API size_t wsh_token_stream_diagnostic_count(
     const wsh_token_stream *stream);
 
 /**
@@ -281,7 +283,7 @@ size_t wsh_token_stream_diagnostic_count(
  * @param out_diagnostic Receives a borrowed view.
  * @return WSH_OK or WSH_ERR_INVALID.
  */
-wsh_result wsh_token_stream_diagnostic_at(
+WSH_API wsh_result wsh_token_stream_diagnostic_at(
     const wsh_token_stream *stream,
     size_t index,
     wsh_syntax_diagnostic_view *out_diagnostic);
@@ -293,7 +295,7 @@ wsh_result wsh_token_stream_diagnostic_at(
  * @param out_tree Receives the owned immutable result on success.
  * @return WSH_OK or an argument/resource/internal error.
  */
-wsh_result wsh_parse(
+WSH_API wsh_result wsh_parse(
     const wsh_parser_options *options,
     const wsh_source *source,
     wsh_parse_tree **out_tree);
@@ -302,28 +304,28 @@ wsh_result wsh_parse(
  * Destroy a parse tree and every AST node it owns.
  * @param tree Owned tree; null is accepted.
  */
-void wsh_parse_tree_destroy(wsh_parse_tree *tree);
+WSH_API void wsh_parse_tree_destroy(wsh_parse_tree *tree);
 
 /**
  * Return the parse status.
  * @param tree Parse-tree owner.
  * @return Complete, incomplete, or error.
  */
-wsh_syntax_status wsh_parse_tree_status(const wsh_parse_tree *tree);
+WSH_API wsh_syntax_status wsh_parse_tree_status(const wsh_parse_tree *tree);
 
 /**
  * Return the complete AST root.
  * @param tree Parse-tree owner.
  * @return Borrowed root only for a complete parse, otherwise null.
  */
-const wsh_ast_node *wsh_parse_tree_root(const wsh_parse_tree *tree);
+WSH_API const wsh_ast_node *wsh_parse_tree_root(const wsh_parse_tree *tree);
 
 /**
  * Return retained parse diagnostic count.
  * @param tree Parse-tree owner.
  * @return Diagnostic count, or zero for null.
  */
-size_t wsh_parse_tree_diagnostic_count(const wsh_parse_tree *tree);
+WSH_API size_t wsh_parse_tree_diagnostic_count(const wsh_parse_tree *tree);
 
 /**
  * Inspect one parse diagnostic.
@@ -332,7 +334,7 @@ size_t wsh_parse_tree_diagnostic_count(const wsh_parse_tree *tree);
  * @param out_diagnostic Receives a borrowed view.
  * @return WSH_OK or WSH_ERR_INVALID.
  */
-wsh_result wsh_parse_tree_diagnostic_at(
+WSH_API wsh_result wsh_parse_tree_diagnostic_at(
     const wsh_parse_tree *tree,
     size_t index,
     wsh_syntax_diagnostic_view *out_diagnostic);
@@ -342,21 +344,21 @@ wsh_result wsh_parse_tree_diagnostic_at(
  * @param kind Token category.
  * @return Static ASCII name.
  */
-const char *wsh_token_kind_name(wsh_token_kind kind);
+WSH_API const char *wsh_token_kind_name(wsh_token_kind kind);
 
 /**
  * Return a stable AST-kind name.
  * @param kind AST category.
  * @return Static ASCII name.
  */
-const char *wsh_ast_kind_name(wsh_ast_kind kind);
+WSH_API const char *wsh_ast_kind_name(wsh_ast_kind kind);
 
 /**
  * Return an AST node's category.
  * @param node Borrowed AST node.
  * @return Node kind, or WSH_AST_INPUT for null.
  */
-wsh_ast_kind wsh_ast_node_kind(const wsh_ast_node *node);
+WSH_API wsh_ast_kind wsh_ast_node_kind(const wsh_ast_node *node);
 
 /**
  * Return an AST node's source span.
@@ -364,7 +366,7 @@ wsh_ast_kind wsh_ast_node_kind(const wsh_ast_node *node);
  * @param out_span Receives the span.
  * @return WSH_OK or WSH_ERR_INVALID.
  */
-wsh_result wsh_ast_node_span(
+WSH_API wsh_result wsh_ast_node_span(
     const wsh_ast_node *node,
     wsh_source_span *out_span);
 
@@ -373,21 +375,21 @@ wsh_result wsh_ast_node_span(
  * @param node Borrowed AST node.
  * @return Borrowed text, empty when absent.
  */
-wsh_string_view wsh_ast_node_text(const wsh_ast_node *node);
+WSH_API wsh_string_view wsh_ast_node_text(const wsh_ast_node *node);
 
 /**
  * Return optional auxiliary node text such as a descriptor decoration.
  * @param node Borrowed AST node.
  * @return Borrowed text, empty when absent.
  */
-wsh_string_view wsh_ast_node_auxiliary(const wsh_ast_node *node);
+WSH_API wsh_string_view wsh_ast_node_auxiliary(const wsh_ast_node *node);
 
 /**
  * Return ordered child count.
  * @param node Borrowed AST node.
  * @return Child count, or zero for null.
  */
-size_t wsh_ast_node_child_count(const wsh_ast_node *node);
+WSH_API size_t wsh_ast_node_child_count(const wsh_ast_node *node);
 
 /**
  * Inspect one ordered child.
@@ -395,7 +397,7 @@ size_t wsh_ast_node_child_count(const wsh_ast_node *node);
  * @param index Zero-based child index.
  * @return Borrowed child, or null when out of range.
  */
-const wsh_ast_node *wsh_ast_node_child_at(
+WSH_API const wsh_ast_node *wsh_ast_node_child_at(
     const wsh_ast_node *node,
     size_t index);
 
@@ -405,7 +407,7 @@ const wsh_ast_node *wsh_ast_node_child_at(
  * @param out_text Receives an owned immutable UTF-8 string.
  * @return WSH_OK or an argument/resource/internal error.
  */
-wsh_result wsh_parse_tree_format(
+WSH_API wsh_result wsh_parse_tree_format(
     const wsh_parse_tree *tree,
     wsh_string **out_text);
 

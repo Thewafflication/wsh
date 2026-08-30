@@ -10,6 +10,8 @@
 #ifndef WSH_CORE_H
 #define WSH_CORE_H
 
+#include "wsh/api.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -351,14 +353,14 @@ typedef struct wsh_fake_runtime wsh_fake_runtime;
  * Return the portable default allocator.
  * @return Allocator backed by malloc and free.
  */
-wsh_allocator wsh_allocator_default(void);
+WSH_API wsh_allocator wsh_allocator_default(void);
 
 /**
  * Release memory with a specified allocator.
  * @param allocator Allocator that created pointer.
  * @param pointer Pointer to release; null is accepted.
  */
-void wsh_allocator_release(
+WSH_API void wsh_allocator_release(
     const wsh_allocator *allocator,
     void *pointer);
 
@@ -366,14 +368,14 @@ void wsh_allocator_release(
  * Return conservative default resource limits.
  * @return Fully initialized limit set.
  */
-wsh_limits wsh_limits_default(void);
+WSH_API wsh_limits wsh_limits_default(void);
 
 /**
  * Build a string view from a NUL-terminated C string.
  * @param text C string, or null for an empty view.
  * @return Borrowed view excluding the terminator.
  */
-wsh_string_view wsh_string_view_from_cstr(const char *text);
+WSH_API wsh_string_view wsh_string_view_from_cstr(const char *text);
 
 /**
  * Compare two byte-exact string views.
@@ -381,7 +383,7 @@ wsh_string_view wsh_string_view_from_cstr(const char *text);
  * @param right Second view.
  * @return Nonzero when lengths and bytes are equal.
  */
-int wsh_string_view_equal(
+WSH_API int wsh_string_view_equal(
     wsh_string_view left,
     wsh_string_view right);
 
@@ -391,7 +393,7 @@ int wsh_string_view_equal(
  * @param out_scalar_count Optional output for decoded scalar count.
  * @return WSH_OK or a validation error.
  */
-wsh_result wsh_utf8_validate(
+WSH_API wsh_result wsh_utf8_validate(
     wsh_string_view text,
     size_t *out_scalar_count);
 
@@ -404,7 +406,7 @@ wsh_result wsh_utf8_validate(
  * @param out_length Receives units excluding the terminator.
  * @return WSH_OK or an encoding/resource error.
  */
-wsh_result wsh_utf8_to_utf16(
+WSH_API wsh_result wsh_utf8_to_utf16(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_string_view input,
@@ -421,7 +423,7 @@ wsh_result wsh_utf8_to_utf16(
  * @param out_length Receives bytes excluding the terminator.
  * @return WSH_OK or an encoding/resource error.
  */
-wsh_result wsh_utf16_to_utf8(
+WSH_API wsh_result wsh_utf16_to_utf8(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     const uint16_t *units,
@@ -435,7 +437,7 @@ wsh_result wsh_utf16_to_utf8(
  * @param length Number of raw bytes.
  * @return Recognized BOM or WSH_BOM_NONE.
  */
-wsh_bom_kind wsh_source_detect_bom(
+WSH_API wsh_bom_kind wsh_source_detect_bom(
     const unsigned char *bytes,
     size_t length);
 
@@ -448,7 +450,7 @@ wsh_bom_kind wsh_source_detect_bom(
  * @param out_source Receives the owned source on success.
  * @return WSH_OK or an encoding/resource/argument error.
  */
-wsh_result wsh_source_create(
+WSH_API wsh_result wsh_source_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     const unsigned char *bytes,
@@ -459,35 +461,35 @@ wsh_result wsh_source_create(
  * Destroy a decoded source.
  * @param source Owned source; null is accepted.
  */
-void wsh_source_destroy(wsh_source *source);
+WSH_API void wsh_source_destroy(wsh_source *source);
 
 /**
  * Return normalized internal UTF-8 source text.
  * @param source Source owner.
  * @return Borrowed view, empty for an invalid source pointer.
  */
-wsh_string_view wsh_source_text(const wsh_source *source);
+WSH_API wsh_string_view wsh_source_text(const wsh_source *source);
 
 /**
  * Return the source's leading BOM classification.
  * @param source Source owner.
  * @return BOM kind, or WSH_BOM_NONE for null.
  */
-wsh_bom_kind wsh_source_bom(const wsh_source *source);
+WSH_API wsh_bom_kind wsh_source_bom(const wsh_source *source);
 
 /**
  * Return decoded Unicode-scalar count.
  * @param source Source owner.
  * @return Scalar count, or zero for null.
  */
-size_t wsh_source_scalar_count(const wsh_source *source);
+WSH_API size_t wsh_source_scalar_count(const wsh_source *source);
 
 /**
  * Return logical line count, including a final unterminated line.
  * @param source Source owner.
  * @return At least one for a valid source, or zero for null.
  */
-size_t wsh_source_line_count(const wsh_source *source);
+WSH_API size_t wsh_source_line_count(const wsh_source *source);
 
 /**
  * Resolve a normalized UTF-8 byte range to original and scalar positions.
@@ -497,7 +499,7 @@ size_t wsh_source_line_count(const wsh_source *source);
  * @param out_span Receives the half-open span.
  * @return WSH_OK, or WSH_ERR_INVALID for a non-scalar boundary.
  */
-wsh_result wsh_source_get_span(
+WSH_API wsh_result wsh_source_get_span(
     const wsh_source *source,
     size_t utf8_offset,
     size_t utf8_length,
@@ -511,7 +513,7 @@ wsh_result wsh_source_get_span(
  * @param out_string Receives the owned string.
  * @return WSH_OK or an encoding/resource/argument error.
  */
-wsh_result wsh_string_create(
+WSH_API wsh_result wsh_string_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_string_view text,
@@ -521,14 +523,14 @@ wsh_result wsh_string_create(
  * Destroy an immutable string.
  * @param string Owned string; null is accepted.
  */
-void wsh_string_destroy(wsh_string *string);
+WSH_API void wsh_string_destroy(wsh_string *string);
 
 /**
  * Borrow an immutable string's bytes.
  * @param string String owner.
  * @return Borrowed view, or empty for null.
  */
-wsh_string_view wsh_string_bytes(const wsh_string *string);
+WSH_API wsh_string_view wsh_string_bytes(const wsh_string *string);
 
 /**
  * Create an empty fault-atomic string builder.
@@ -537,7 +539,7 @@ wsh_string_view wsh_string_bytes(const wsh_string *string);
  * @param out_builder Receives the owned builder.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_string_builder_create(
+WSH_API wsh_result wsh_string_builder_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_string_builder **out_builder);
@@ -548,7 +550,7 @@ wsh_result wsh_string_builder_create(
  * @param text Bytes to append.
  * @return WSH_OK or an encoding/resource/argument error.
  */
-wsh_result wsh_string_builder_append(
+WSH_API wsh_result wsh_string_builder_append(
     wsh_string_builder *builder,
     wsh_string_view text);
 
@@ -558,7 +560,7 @@ wsh_result wsh_string_builder_append(
  * @param out_string Receives the owned immutable string.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_string_builder_finish(
+WSH_API wsh_result wsh_string_builder_finish(
     wsh_string_builder *builder,
     wsh_string **out_string);
 
@@ -566,7 +568,7 @@ wsh_result wsh_string_builder_finish(
  * Destroy a string builder and any unpublished bytes.
  * @param builder Owned builder; null is accepted.
  */
-void wsh_string_builder_destroy(wsh_string_builder *builder);
+WSH_API void wsh_string_builder_destroy(wsh_string_builder *builder);
 
 /**
  * Create an empty flat-list builder.
@@ -575,7 +577,7 @@ void wsh_string_builder_destroy(wsh_string_builder *builder);
  * @param out_builder Receives the owned builder.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_value_builder_create(
+WSH_API wsh_result wsh_value_builder_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_value_builder **out_builder);
@@ -586,7 +588,7 @@ wsh_result wsh_value_builder_create(
  * @param text Strict UTF-8 element.
  * @return WSH_OK or an encoding/resource/argument error.
  */
-wsh_result wsh_value_builder_append(
+WSH_API wsh_result wsh_value_builder_append(
     wsh_value_builder *builder,
     wsh_string_view text);
 
@@ -596,7 +598,7 @@ wsh_result wsh_value_builder_append(
  * @param out_value Receives the owned value.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_value_builder_finish(
+WSH_API wsh_result wsh_value_builder_finish(
     wsh_value_builder *builder,
     wsh_value **out_value);
 
@@ -604,7 +606,7 @@ wsh_result wsh_value_builder_finish(
  * Destroy a value builder and unpublished elements.
  * @param builder Owned builder; null is accepted.
  */
-void wsh_value_builder_destroy(wsh_value_builder *builder);
+WSH_API void wsh_value_builder_destroy(wsh_value_builder *builder);
 
 /**
  * Deep-clone an immutable flat value.
@@ -614,7 +616,7 @@ void wsh_value_builder_destroy(wsh_value_builder *builder);
  * @param out_value Receives the owned clone.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_value_clone(
+WSH_API wsh_result wsh_value_clone(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     const wsh_value *value,
@@ -624,14 +626,14 @@ wsh_result wsh_value_clone(
  * Destroy an immutable flat value.
  * @param value Owned value; null is accepted.
  */
-void wsh_value_destroy(wsh_value *value);
+WSH_API void wsh_value_destroy(wsh_value *value);
 
 /**
  * Return the number of strings in a flat value.
  * @param value Value owner.
  * @return Element count, or zero for null.
  */
-size_t wsh_value_count(const wsh_value *value);
+WSH_API size_t wsh_value_count(const wsh_value *value);
 
 /**
  * Borrow one string element by index.
@@ -640,7 +642,7 @@ size_t wsh_value_count(const wsh_value *value);
  * @param out_text Receives a borrowed view.
  * @return WSH_OK or WSH_ERR_INVALID for an invalid index.
  */
-wsh_result wsh_value_at(
+WSH_API wsh_result wsh_value_at(
     const wsh_value *value,
     size_t index,
     wsh_string_view *out_text);
@@ -652,7 +654,7 @@ wsh_result wsh_value_at(
  * @param out_builder Receives the owned builder.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_status_builder_create(
+WSH_API wsh_result wsh_status_builder_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_status_builder **out_builder);
@@ -663,7 +665,7 @@ wsh_result wsh_status_builder_create(
  * @param status Unsigned Windows status value.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_status_builder_append(
+WSH_API wsh_result wsh_status_builder_append(
     wsh_status_builder *builder,
     uint32_t status);
 
@@ -673,7 +675,7 @@ wsh_result wsh_status_builder_append(
  * @param out_status Receives the owned list.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_status_builder_finish(
+WSH_API wsh_result wsh_status_builder_finish(
     wsh_status_builder *builder,
     wsh_status_list **out_status);
 
@@ -681,20 +683,20 @@ wsh_result wsh_status_builder_finish(
  * Destroy a status builder and unpublished elements.
  * @param builder Owned builder; null is accepted.
  */
-void wsh_status_builder_destroy(wsh_status_builder *builder);
+WSH_API void wsh_status_builder_destroy(wsh_status_builder *builder);
 
 /**
  * Destroy an immutable status list.
  * @param status Owned list; null is accepted.
  */
-void wsh_status_list_destroy(wsh_status_list *status);
+WSH_API void wsh_status_list_destroy(wsh_status_list *status);
 
 /**
  * Return the number of statuses.
  * @param status Status owner.
  * @return Element count, or zero for null.
  */
-size_t wsh_status_list_count(const wsh_status_list *status);
+WSH_API size_t wsh_status_list_count(const wsh_status_list *status);
 
 /**
  * Return one status by index.
@@ -703,7 +705,7 @@ size_t wsh_status_list_count(const wsh_status_list *status);
  * @param out_value Receives the status.
  * @return WSH_OK or WSH_ERR_INVALID for an invalid index.
  */
-wsh_result wsh_status_list_at(
+WSH_API wsh_result wsh_status_list_at(
     const wsh_status_list *status,
     size_t index,
     uint32_t *out_value);
@@ -713,7 +715,7 @@ wsh_result wsh_status_list_at(
  * @param status Status owner.
  * @return Nonzero only for a nonempty, all-zero list.
  */
-int wsh_status_list_is_success(const wsh_status_list *status);
+WSH_API int wsh_status_list_is_success(const wsh_status_list *status);
 
 /**
  * Return the last status when present.
@@ -721,7 +723,7 @@ int wsh_status_list_is_success(const wsh_status_list *status);
  * @param out_value Receives the last status.
  * @return WSH_OK, or WSH_ERR_INVALID for an empty or null list.
  */
-wsh_result wsh_status_list_last(
+WSH_API wsh_result wsh_status_list_last(
     const wsh_status_list *status,
     uint32_t *out_value);
 
@@ -729,7 +731,7 @@ wsh_result wsh_status_list_last(
  * Initialize context options with portable defaults.
  * @param out_options Receives complete defaults.
  */
-void wsh_context_options_init(wsh_context_options *out_options);
+WSH_API void wsh_context_options_init(wsh_context_options *out_options);
 
 /**
  * Create one isolated portable context.
@@ -737,7 +739,7 @@ void wsh_context_options_init(wsh_context_options *out_options);
  * @param out_context Receives the owned context.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_context_create(
+WSH_API wsh_result wsh_context_create(
     const wsh_context_options *options,
     wsh_context **out_context);
 
@@ -745,7 +747,7 @@ wsh_result wsh_context_create(
  * Destroy an idle context and all state it owns.
  * @param context Owned context; null is accepted.
  */
-void wsh_context_destroy(wsh_context *context);
+WSH_API void wsh_context_destroy(wsh_context *context);
 
 /**
  * Set an exact case-sensitive variable as private when newly created.
@@ -754,7 +756,7 @@ void wsh_context_destroy(wsh_context *context);
  * @param value Immutable flat value to clone.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_context_set_variable(
+WSH_API wsh_result wsh_context_set_variable(
     wsh_context *context,
     wsh_string_view name,
     const wsh_value *value);
@@ -766,7 +768,7 @@ wsh_result wsh_context_set_variable(
  * @param value Immutable flat value to clone.
  * @return WSH_OK, collision, or an argument/resource error.
  */
-wsh_result wsh_context_import_variable(
+WSH_API wsh_result wsh_context_import_variable(
     wsh_context *context,
     wsh_string_view name,
     const wsh_value *value);
@@ -778,7 +780,7 @@ wsh_result wsh_context_import_variable(
  * @param out_value Receives a borrowed value pointer.
  * @return WSH_OK or WSH_ERR_INVALID when absent.
  */
-wsh_result wsh_context_get_variable(
+WSH_API wsh_result wsh_context_get_variable(
     const wsh_context *context,
     wsh_string_view name,
     const wsh_value **out_value);
@@ -789,7 +791,7 @@ wsh_result wsh_context_get_variable(
  * @param name Name to remove.
  * @return WSH_OK or WSH_ERR_INVALID when absent.
  */
-wsh_result wsh_context_unset_variable(
+WSH_API wsh_result wsh_context_unset_variable(
     wsh_context *context,
     wsh_string_view name);
 
@@ -800,7 +802,7 @@ wsh_result wsh_context_unset_variable(
  * @param exported Nonzero to export, zero to make private.
  * @return WSH_OK, mismatch for a collision, or an argument error.
  */
-wsh_result wsh_context_set_exported(
+WSH_API wsh_result wsh_context_set_exported(
     wsh_context *context,
     wsh_string_view name,
     int exported);
@@ -812,7 +814,7 @@ wsh_result wsh_context_set_exported(
  * @param out_exported Receives zero or one.
  * @return WSH_OK or WSH_ERR_INVALID when absent.
  */
-wsh_result wsh_context_is_exported(
+WSH_API wsh_result wsh_context_is_exported(
     const wsh_context *context,
     wsh_string_view name,
     int *out_exported);
@@ -822,7 +824,7 @@ wsh_result wsh_context_is_exported(
  * @param context Context owner.
  * @return Variable count, or zero for null.
  */
-size_t wsh_context_variable_count(const wsh_context *context);
+WSH_API size_t wsh_context_variable_count(const wsh_context *context);
 
 /**
  * Inspect one variable in deterministic insertion order.
@@ -833,7 +835,7 @@ size_t wsh_context_variable_count(const wsh_context *context);
  * @param out_exported Receives zero or one.
  * @return WSH_OK or WSH_ERR_INVALID for an invalid index.
  */
-wsh_result wsh_context_variable_at(
+WSH_API wsh_result wsh_context_variable_at(
     const wsh_context *context,
     size_t index,
     wsh_string_view *out_name,
@@ -846,7 +848,7 @@ wsh_result wsh_context_variable_at(
  * @param out_options Receives copied options.
  * @return WSH_OK or WSH_ERR_INVALID.
  */
-wsh_result wsh_context_get_options(
+WSH_API wsh_result wsh_context_get_options(
     const wsh_context *context,
     wsh_context_options *out_options);
 
@@ -860,7 +862,7 @@ wsh_result wsh_context_get_options(
  * @param span Optional source span.
  * @return WSH_OK or an encoding/resource/argument error.
  */
-wsh_result wsh_context_add_diagnostic(
+WSH_API wsh_result wsh_context_add_diagnostic(
     wsh_context *context,
     wsh_diagnostic_severity severity,
     wsh_diagnostic_code code,
@@ -873,7 +875,7 @@ wsh_result wsh_context_add_diagnostic(
  * @param context Context owner.
  * @return Diagnostic count, or zero for null.
  */
-size_t wsh_context_diagnostic_count(const wsh_context *context);
+WSH_API size_t wsh_context_diagnostic_count(const wsh_context *context);
 
 /**
  * Borrow one retained diagnostic.
@@ -882,7 +884,7 @@ size_t wsh_context_diagnostic_count(const wsh_context *context);
  * @param out_view Receives borrowed diagnostic fields.
  * @return WSH_OK or WSH_ERR_INVALID for an invalid index.
  */
-wsh_result wsh_context_diagnostic_at(
+WSH_API wsh_result wsh_context_diagnostic_at(
     const wsh_context *context,
     size_t index,
     wsh_diagnostic_view *out_view);
@@ -895,7 +897,7 @@ wsh_result wsh_context_diagnostic_at(
  * @param out_status Receives an owned status list.
  * @return Runtime result or an argument/resource error.
  */
-wsh_result wsh_context_runtime_invoke(
+WSH_API wsh_result wsh_context_runtime_invoke(
     wsh_context *context,
     const wsh_runtime_request *request,
     wsh_value **out_value,
@@ -908,7 +910,7 @@ wsh_result wsh_context_runtime_invoke(
  * @param out_fake Receives the owned fake.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_fake_runtime_create(
+WSH_API wsh_result wsh_fake_runtime_create(
     const wsh_allocator *allocator,
     const wsh_limits *limits,
     wsh_fake_runtime **out_fake);
@@ -917,14 +919,14 @@ wsh_result wsh_fake_runtime_create(
  * Destroy a fake runtime and all scripted expectations.
  * @param fake Owned fake; null is accepted.
  */
-void wsh_fake_runtime_destroy(wsh_fake_runtime *fake);
+WSH_API void wsh_fake_runtime_destroy(wsh_fake_runtime *fake);
 
 /**
  * Return callbacks bound to a fake runtime.
  * @param fake Fake owner.
  * @return Runtime callbacks; invoke is null when fake is null.
  */
-wsh_runtime wsh_fake_runtime_interface(wsh_fake_runtime *fake);
+WSH_API wsh_runtime wsh_fake_runtime_interface(wsh_fake_runtime *fake);
 
 /**
  * Append one ordered fake-runtime expectation.
@@ -936,7 +938,7 @@ wsh_runtime wsh_fake_runtime_interface(wsh_fake_runtime *fake);
  * @param result Result returned after scripted output is copied.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_fake_runtime_expect(
+WSH_API wsh_result wsh_fake_runtime_expect(
     wsh_fake_runtime *fake,
     wsh_runtime_operation operation,
     wsh_string_view subject,
@@ -955,7 +957,7 @@ wsh_result wsh_fake_runtime_expect(
  * @param result Result returned after scripted output is copied.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_fake_runtime_expect_arguments(
+WSH_API wsh_result wsh_fake_runtime_expect_arguments(
     wsh_fake_runtime *fake,
     wsh_runtime_operation operation,
     wsh_string_view subject,
@@ -969,14 +971,14 @@ wsh_result wsh_fake_runtime_expect_arguments(
  * @param fake Fake owner.
  * @return WSH_OK when complete, otherwise WSH_ERR_MISMATCH.
  */
-wsh_result wsh_fake_runtime_complete(const wsh_fake_runtime *fake);
+WSH_API wsh_result wsh_fake_runtime_complete(const wsh_fake_runtime *fake);
 
 /**
  * Return the number of calls observed by a fake runtime.
  * @param fake Fake owner.
  * @return Observed call count, or zero for null.
  */
-size_t wsh_fake_runtime_call_count(const wsh_fake_runtime *fake);
+WSH_API size_t wsh_fake_runtime_call_count(const wsh_fake_runtime *fake);
 
 #ifdef __cplusplus
 }

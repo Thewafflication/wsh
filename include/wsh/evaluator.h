@@ -6,6 +6,8 @@
 #ifndef WSH_EVALUATOR_H
 #define WSH_EVALUATOR_H
 
+#include "wsh/api.h"
+
 #include "wsh/parser.h"
 
 #ifdef __cplusplus
@@ -30,7 +32,7 @@ typedef struct wsh_evaluator_options {
 } wsh_evaluator_options;
 
 /** Initialize conservative finite evaluator defaults. */
-void wsh_evaluator_options_init(wsh_evaluator_options *out_options);
+WSH_API void wsh_evaluator_options_init(wsh_evaluator_options *out_options);
 
 /**
  * Create an evaluator borrowing one isolated context.
@@ -39,13 +41,13 @@ void wsh_evaluator_options_init(wsh_evaluator_options *out_options);
  * @param out_evaluator Receives the owned evaluator.
  * @return WSH_OK or an argument/resource error.
  */
-wsh_result wsh_evaluator_create(
+WSH_API wsh_result wsh_evaluator_create(
     wsh_context *context,
     const wsh_evaluator_options *options,
     wsh_evaluator **out_evaluator);
 
 /** Destroy an evaluator and its persistent functions. */
-void wsh_evaluator_destroy(wsh_evaluator *evaluator);
+WSH_API void wsh_evaluator_destroy(wsh_evaluator *evaluator);
 
 /**
  * Evaluate one complete immutable parse tree.
@@ -54,16 +56,16 @@ void wsh_evaluator_destroy(wsh_evaluator *evaluator);
  * @param out_status Receives an owned nonempty status list.
  * @return WSH_OK or an evaluation/resource/runtime error.
  */
-wsh_result wsh_evaluate(
+WSH_API wsh_result wsh_evaluate(
     wsh_evaluator *evaluator,
     const wsh_parse_tree *tree,
     wsh_status_list **out_status);
 
 /** Return the number of persistent functions in definition order. */
-size_t wsh_evaluator_function_count(const wsh_evaluator *evaluator);
+WSH_API size_t wsh_evaluator_function_count(const wsh_evaluator *evaluator);
 
 /** Borrow one persistent function name by zero-based index. */
-wsh_result wsh_evaluator_function_at(
+WSH_API wsh_result wsh_evaluator_function_at(
     const wsh_evaluator *evaluator,
     size_t index,
     wsh_string_view *out_name);
@@ -76,23 +78,23 @@ wsh_result wsh_evaluator_function_at(
  * @param out_status Receives the owned final status.
  * @return WSH_OK or an evaluation/resource error.
  */
-wsh_result wsh_evaluator_invoke_signal(
+WSH_API wsh_result wsh_evaluator_invoke_signal(
     wsh_evaluator *evaluator,
     wsh_string_view name,
     uint32_t default_status,
     wsh_status_list **out_status);
 
 /** Return nonzero after the evaluator accepted an `exit` built-in. */
-int wsh_evaluator_exit_requested(
+WSH_API int wsh_evaluator_exit_requested(
     const wsh_evaluator *evaluator,
     uint32_t *out_status,
     int *out_forced);
 
 /** Clear a refused interactive exit request. */
-void wsh_evaluator_clear_exit(wsh_evaluator *evaluator);
+WSH_API void wsh_evaluator_clear_exit(wsh_evaluator *evaluator);
 
 /** Return whether the `~` matcher accepts text for pattern. */
-int wsh_pattern_matches(
+WSH_API int wsh_pattern_matches(
     wsh_string_view pattern,
     wsh_string_view text);
 

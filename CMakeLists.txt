@@ -123,7 +123,10 @@ set_target_properties(wsh_shared PROPERTIES
     IMPORT_PREFIX ""
     IMPORT_SUFFIX ".def"
 )
-target_link_options(wsh_shared PRIVATE "-Wl,-export-all-symbols")
+# The shared library exports only the ABI 1 surface. Public declarations are
+# marked WSH_API (__declspec(dllexport)) under WSH_SHARED_BUILD; with any such
+# marker present TinyCC exports only the marked symbols, keeping runtime, CRT,
+# and internal WSH functions out of the DLL. Export-all is deliberately absent.
 
 target_include_directories(wsh_static
     PUBLIC
@@ -145,6 +148,7 @@ target_compile_definitions(wsh_static PRIVATE
     WSH_VERSION="${PROJECT_VERSION}"
     WSH_WCRT_VERSION="${WSH_WCRT_VERSION}")
 target_compile_definitions(wsh_shared PRIVATE
+    WSH_SHARED_BUILD
     WSH_VERSION="${PROJECT_VERSION}"
     WSH_WCRT_VERSION="${WSH_WCRT_VERSION}")
 

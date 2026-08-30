@@ -4,9 +4,10 @@ Verify the shared embedding library exports every ABI 1 public symbol.
 
 .DESCRIPTION
 Reads the export definition written beside the shared library and asserts that
-every symbol in the approved ABI 1 manifest is exported. This is the positive
-half of the M8 exit gate: the shared surface must contain the whole public ABI.
-Restricting the export set to only the manifest is tracked separately.
+the exported set is exactly the approved ABI 1 manifest: every manifest symbol
+is present (nothing missing) and no other symbol is exported (nothing extra).
+This enforces both halves of the M8 export exit gate, keeping runtime, CRT, and
+internal WSH symbols out of the public surface.
 #>
 [CmdletBinding()]
 param(
@@ -39,5 +40,13 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
-Write-Output ("verify-abi-exports: all {0} ABI 1 symbols exported" -f $required.Count)
+$unexpected = @($exported | Where-Object { $required -notcontains $_ })
+if ($unexpected.Count -gt 0) {
+    Write-Error ("Unexpected non-ABI exports: " + ($unexpected -join ', '))
+    exit 1
+}
+
+Write-Output (
+    "verify-abi-exports: exported set is exactly the {0} ABI 1 symbols" -f `
+        $required.Count)
 exit 0

@@ -1,6 +1,8 @@
 #ifndef WSH_WSH_H
 #define WSH_WSH_H
 
+#include "wsh/api.h"
+
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -9,10 +11,10 @@ extern "C" {
 
 #define WSH_EMBEDDING_ABI 1u
 
-const char *wsh_get_version_string(void);
-const char *wsh_get_runtime_name(void);
-const char *wsh_get_dependency_summary(void);
-int wsh_print_version(FILE *stream);
+WSH_API const char *wsh_get_version_string(void);
+WSH_API const char *wsh_get_runtime_name(void);
+WSH_API const char *wsh_get_dependency_summary(void);
+WSH_API int wsh_print_version(FILE *stream);
 
 #ifdef __cplusplus
 }
