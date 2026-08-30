@@ -32,6 +32,7 @@ total.
 | 2026-08-30 #9 | Implement | Add `wsh_embedding_abi_version()` runtime accessor; assert it in the C and FFI hosts (manifest now 101) | Commit `7c1d6a8` |
 | 2026-08-30 #10 | Design | Write the M8 design document (composition, export control, ownership, conformance, hosts, versioning) | Commit `8209d16` |
 | 2026-08-30 #11 | Implement | Add the public header hygiene compile/link test covering all four ABI headers | Commit `9ed8936` |
+| 2026-08-30 #12 | Verify | Add the installed-SDK consumption test: compile and run the host against the installed headers, import library, and DLL | Commit `6785cc9` |
 
 ## Verification Log
 
@@ -55,6 +56,9 @@ total.
 | 2026-08-30 | Embedding suite with ABI accessor (post `7c1d6a8`) | Pass (5/5); DLL exports exactly 101 ABI 1 symbols | Local CTest run |
 | 2026-08-30 | Embedding suite with header hygiene (post `9ed8936`) | Pass (6/6) | Local CTest run |
 | 2026-08-30 | DLL PE version resource inspection | Empty FileVersion/ProductVersion; TinyCC embeds no VERSIONINFO | PowerShell `VersionInfo` |
+| 2026-08-30 | `cmake --install` to staging prefix (post `6785cc9`) | Installs headers (incl. `api.h`), `wshlib.lib`, `wshlib.def`, `wshlib.dll`, `wsh.exe` | Local install |
+| 2026-08-30 | `ctest --preset x64-debug -R embedding-installed-sdk` (post `6785cc9`) | Pass: host compiled against installed headers + import def, ran on installed DLL | Local CTest run |
+| 2026-08-30 | Full embedding suite (post `6785cc9`) | Pass (7/7) | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -75,7 +79,7 @@ total.
 
 | Measure | Value | Source or interpretation |
 | --- | ---: | --- |
-| M8 CTest cases added | 6 | `abi-conformance`, `abi-conformance-shared`, `abi-header-hygiene`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest` (enforcing an exact surface) |
+| M8 CTest cases added | 7 | `abi-conformance`, `abi-conformance-shared`, `abi-header-hygiene`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest`, `embedding-installed-sdk` |
 | ABI 1 public symbols (manifest) | 101 | `tests/embedding/abi1-exports.txt` (incl. `wsh_embedding_abi_version`) |
 | DLL exported symbols before restriction | 286 | `wshlib.def` under export-all; runtime/CRT/internal leak |
 | DLL exported symbols after restriction | 100 | `wshlib.def` under `WSH_API`; exactly the ABI 1 manifest |
@@ -96,6 +100,7 @@ total.
 | Runtime ABI version accessor (`7c1d6a8`) | ~24,000 est. | Not reported | Claude Code, assistant estimate |
 | M8 design document (`8209d16`) | ~22,000 est. | Not reported | Claude Code, assistant estimate |
 | Public header hygiene test (`9ed8936`) | ~18,000 est. | Not reported | Claude Code, assistant estimate |
+| Installed-SDK consumption test (`6785cc9`) | ~26,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -116,9 +121,9 @@ exported. All committed and pushed; validated on `x64-debug`.
 1. **Export surface — done (`20f7931`).** The DLL now exports exactly the ABI 1
    symbols via `WSH_API` markers, and `verify-abi-exports.ps1` fails on any
    missing or unexpected export. Header self-containment and no-internal-type
-   are covered by `abi-header-hygiene` (`9ed8936`). Remaining sub-item: a test
-   that builds an example against the *installed* headers/import library in
-   isolation (current checks use the in-tree include directory).
+   are covered by `abi-header-hygiene` (`9ed8936`), and the
+   `embedding-installed-sdk` test (`6785cc9`) builds and runs the host against
+   the installed headers, import library, and DLL. This item is complete.
 2. **Version resource.** A runtime `wsh_embedding_abi_version()` accessor now
    exposes the ABI value for negotiation (`7c1d6a8`). The DLL carries no PE
    version resource — TinyCC embeds no `VERSIONINFO` from CMake's `VERSION`, and
