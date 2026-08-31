@@ -174,6 +174,7 @@ add_test(
 set_tests_properties(m8-traceability PROPERTIES LABELS "M8;quality")
 
 set(WSH_M8_TEST_IDS 0100 0101 0102 0103 0104 0105)
+set(WSH_M8_CTEST_NAMES)
 foreach(test_id IN LISTS WSH_M8_TEST_IDS)
     add_test(
         NAME "m8-TC-${test_id}"
@@ -197,6 +198,9 @@ foreach(test_id IN LISTS WSH_M8_TEST_IDS)
             -HostSource "${CMAKE_SOURCE_DIR}/examples/embedding/host.c"
             -StageDir "${CMAKE_BINARY_DIR}/sdk-stage/$<CONFIG>"
             -TargetArchitecture "${WSH_TARGET_ARCHITECTURE}"
+            -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m8/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
     )
     set_tests_properties(
         "m8-TC-${test_id}"
@@ -205,7 +209,24 @@ foreach(test_id IN LISTS WSH_M8_TEST_IDS)
             LABELS "M8;controlled;embedding"
             TIMEOUT "${WSH_TEST_TIMEOUT}"
     )
+    list(APPEND WSH_M8_CTEST_NAMES "m8-TC-${test_id}")
 endforeach()
+
+add_test(
+    NAME m8-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m8/$<CONFIG>/current"
+        -ExpectedCount 6
+)
+set_tests_properties(
+    m8-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M8_CTEST_NAMES}"
+        LABELS "M8;quality"
+)
 
 add_test(
     NAME frontend-process

@@ -5,8 +5,9 @@ Controlled M8 embedding-SDK test harness.
 .DESCRIPTION
 Dispatches one controlled M8 test case by identifier, running the already-built
 embedding artifacts and asserting their objective results. Every case uses only
-the public surface, the shared library, or the installed SDK. The harness
-returns zero only when the selected case passes.
+the public surface, the shared library, or the installed SDK. When an evidence
+directory is supplied the harness writes a controlled execution-evidence record
+for the case. It returns zero only when the selected case passes.
 #>
 [CmdletBinding()]
 param(
@@ -26,70 +27,92 @@ param(
     [string] $Config,
     [string] $HostSource,
     [string] $StageDir,
-    [string] $TargetArchitecture
+    [string] $TargetArchitecture,
+    [string] $EvidenceDirectory,
+    [string] $RepositoryRoot,
+    [string] $Toolchain
 )
 
 $ErrorActionPreference = 'Stop'
 
-function Invoke-Executable {
-    param([string] $Path, [string] $Expect)
-
-    $output = & $Path
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "$Path exited with $LASTEXITCODE"
-        return $false
+function ConvertTo-TexText {
+    param([AllowEmptyString()][string]$Value)
+    if ($null -eq $Value) { return '' }
+    $builder = [Text.StringBuilder]::new()
+    foreach ($character in $Value.ToCharArray()) {
+        $escaped = switch ($character) {
+            '\' { '\textbackslash{}' }
+            '&' { '\&' }
+            '%' { '\%' }
+            '$' { '\$' }
+            '#' { '\#' }
+            '_' { '\_' }
+            '{' { '\{' }
+            '}' { '\}' }
+            '^' { '\textasciicircum{}' }
+            '~' { '\textasciitilde{}' }
+            default { $character }
+        }
+        [void]$builder.Append($escaped)
     }
-    if ($Expect -and ($output -notcontains $Expect)) {
-        Write-Error ("$Path missing expected output '$Expect': " + ($output -join '|'))
-        return $false
-    }
-    return $true
+    $builder.ToString()
 }
+
+$output = [Collections.Generic.List[string]]::new()
+$status = 'Pass'
+
+function Add-Output { param([object]$Value) foreach ($line in @($Value)) { $output.Add([string]$line) } }
+function Fail { param([string]$Message) $script:status = 'Fail'; $script:output.Add($Message) }
+
+function Invoke-Case {
+    param([string] $Path, [string[]] $Arguments = @(), [string] $Expect)
+    $result = & $Path @Arguments
+    Add-Output $result
+    if ($LASTEXITCODE -ne 0) { Fail "$Path exited with $LASTEXITCODE"; return }
+    if ($Expect -and (@($result) -notcontains $Expect)) {
+        Fail "$Path missing expected output '$Expect'"
+    }
+}
+
+$start = [DateTime]::UtcNow
 
 switch ($TestCase) {
     'TC-0100' {
-        if (-not (Invoke-Executable -Path $ConformanceStatic)) { exit 1 }
-        if (-not (Invoke-Executable -Path $ConformanceShared)) { exit 1 }
-        Write-Output 'TC-0100: static and shared ABI conformance and misuse passed'
+        Invoke-Case -Path $ConformanceStatic
+        Invoke-Case -Path $ConformanceShared
     }
     'TC-0101' {
-        $result = & pwsh -NoProfile -File $VerifyExports `
-            -SharedLibrary $SharedLibrary -Manifest $Manifest
-        if ($LASTEXITCODE -ne 0) { Write-Error ($result -join '|'); exit 1 }
-        Write-Output 'TC-0101: shared library exports exactly the ABI 1 manifest'
+        Invoke-Case -Path 'pwsh' -Arguments @(
+            '-NoProfile', '-File', $VerifyExports,
+            '-SharedLibrary', $SharedLibrary, '-Manifest', $Manifest)
     }
     'TC-0102' {
-        if (-not (Invoke-Executable -Path $HostExample -Expect 'host: ok')) { exit 1 }
-        Write-Output 'TC-0102: C embedding host ran against the public surface'
+        Invoke-Case -Path $HostExample -Expect 'host: ok'
     }
     'TC-0103' {
         if ([string]::IsNullOrEmpty($Python)) {
-            Write-Output 'TC-0103: skipped (no Python interpreter)'
-            exit 0
+            Add-Output 'skipped: no Python interpreter'
         }
-        $bits = (& $Python -c "import struct;print(struct.calcsize('P')*8)").Trim()
-        $targetBits = if ($TargetArchitecture -eq 'x86') { '32' } else { '64' }
-        if ($bits -ne $targetBits) {
-            Write-Output "TC-0103: skipped (Python $bits-bit vs target $targetBits-bit)"
-            exit 0
+        else {
+            $bits = (& $Python -c "import struct;print(struct.calcsize('P')*8)").Trim()
+            $targetBits = if ($TargetArchitecture -eq 'x86') { '32' } else { '64' }
+            if ($bits -ne $targetBits) {
+                Add-Output "skipped: Python $bits-bit vs target $targetBits-bit"
+            }
+            else {
+                Invoke-Case -Path $Python -Arguments @($PythonScript, $SharedLibrary) `
+                    -Expect 'host.py: ok'
+            }
         }
-        $output = & $Python $PythonScript $SharedLibrary
-        if ($LASTEXITCODE -ne 0 -or ($output -notcontains 'host.py: ok')) {
-            Write-Error ('FFI host failed: ' + ($output -join '|'))
-            exit 1
-        }
-        Write-Output 'TC-0103: Python FFI host ran against the shared ABI'
     }
     'TC-0104' {
-        if (-not (Invoke-Executable -Path $HeaderHygiene)) { exit 1 }
-        Write-Output 'TC-0104: public headers compile standalone with no internal type'
+        Invoke-Case -Path $HeaderHygiene
     }
     'TC-0105' {
-        $result = & pwsh -NoProfile -File $VerifyInstalled `
-            -Compiler $Compiler -BuildDir $BuildDir -Config $Config `
-            -Source $HostSource -StageDir $StageDir
-        if ($LASTEXITCODE -ne 0) { Write-Error ($result -join '|'); exit 1 }
-        Write-Output 'TC-0105: host built and ran against the installed SDK'
+        Invoke-Case -Path 'pwsh' -Arguments @(
+            '-NoProfile', '-File', $VerifyInstalled,
+            '-Compiler', $Compiler, '-BuildDir', $BuildDir, '-Config', $Config,
+            '-Source', $HostSource, '-StageDir', $StageDir)
     }
     default {
         Write-Error "Unknown M8 test case: $TestCase"
@@ -97,4 +120,69 @@ switch ($TestCase) {
     }
 }
 
+$finish = [DateTime]::UtcNow
+$outputText = ($output -join "`n")
+if (-not $outputText) { $outputText = '(no output)' }
+
+if ($EvidenceDirectory) {
+    $repo = if ($RepositoryRoot) { (Resolve-Path -LiteralPath $RepositoryRoot).Path } else { '' }
+    $testDigits = $TestCase.Substring(3)
+    $specPath = $null
+    if ($repo) {
+        $specs = @(Get-ChildItem -LiteralPath (Join-Path $repo 'docs/tests/m8') -File |
+            Where-Object { $_.Name -like "tc-$testDigits-*.tex" })
+        if ($specs.Count -eq 1) { $specPath = $specs[0].FullName }
+    }
+    $requirementReferences = 'WSH-REQ-' + $testDigits
+    if ($specPath) {
+        $specText = Get-Content -LiteralPath $specPath -Raw
+        $refMatch = [regex]::Match($specText,
+            '\\def\\TCRequirementRef\{(?<r>.*?)\}',
+            [Text.RegularExpressions.RegexOptions]::Singleline)
+        if ($refMatch.Success) {
+            $requirementReferences = ($refMatch.Groups['r'].Value -replace '\s+', ' ').Trim()
+        }
+    }
+    $specHash = if ($specPath) { (Get-FileHash -LiteralPath $specPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { 'unavailable' }
+    $artifactHash = if ($SharedLibrary -and (Test-Path -LiteralPath $SharedLibrary)) {
+        (Get-FileHash -LiteralPath $SharedLibrary -Algorithm SHA256).Hash.ToLowerInvariant()
+    } else { 'unavailable' }
+    $revision = if ($repo) { (& git -C $repo rev-parse HEAD 2>$null).Trim() } else { '' }
+    if (-not $revision) { $revision = 'Unavailable' }
+    if ($repo) {
+        $dirty = @(& git -C $repo status --short 2>$null)
+        if ($dirty.Count -gt 0) { $revision += ' (working tree modified)' }
+    }
+    $runnerArchitecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    $operatingSystem = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+
+    New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
+    $evidenceName = $TestCase.ToLowerInvariant() + '-execution-evidence.tex'
+    $evidencePath = Join-Path $EvidenceDirectory $evidenceName
+    $evidence = @"
+\subsection*{Execution Evidence: $(ConvertTo-TexText $TestCase)}
+\begin{description}
+\item[Test Case] $(ConvertTo-TexText $TestCase)
+\item[Test Specification SHA-256] $(ConvertTo-TexText $specHash)
+\item[Tested Shared Library SHA-256] $(ConvertTo-TexText $artifactHash)
+\item[Requirement References] $(ConvertTo-TexText $requirementReferences)
+\item[Source Revision] $(ConvertTo-TexText $revision)
+\item[Target Architecture] $(ConvertTo-TexText $TargetArchitecture)
+\item[Runner Architecture] $(ConvertTo-TexText $runnerArchitecture)
+\item[Build Configuration] $(ConvertTo-TexText $Config)
+\item[Operating System] $(ConvertTo-TexText $operatingSystem)
+\item[Toolchain] $(ConvertTo-TexText $Toolchain)
+\item[Start UTC] $(ConvertTo-TexText $start.ToString('o'))
+\item[Finish UTC] $(ConvertTo-TexText $finish.ToString('o'))
+\item[Overall Status] $status
+\end{description}
+\begin{verbatim}
+$outputText
+\end{verbatim}
+"@
+    Set-Content -LiteralPath $evidencePath -Value $evidence -Encoding utf8
+}
+
+Write-Output $outputText
+if ($status -ne 'Pass') { exit 1 }
 exit 0
