@@ -34,6 +34,7 @@ total.
 | 2026-08-30 #11 | Implement | Add the public header hygiene compile/link test covering all four ABI headers | Commit `9ed8936` |
 | 2026-08-30 #12 | Verify | Add the installed-SDK consumption test: compile and run the host against the installed headers, import library, and DLL | Commit `6785cc9` |
 | 2026-08-30 #13 | Review | Write the M8 review record (checklist, defect patterns, residual boundaries) | Commit `1b3a3ae` |
+| 2026-08-30 #14 | Specify | Add M8 requirements, TeX test specs, and controlled implementations (TC-0100..0105); wire m8-traceability and consolidate the embedding tests into the controlled pattern | Commit `ff37162` |
 
 ## Verification Log
 
@@ -60,6 +61,8 @@ total.
 | 2026-08-30 | `cmake --install` to staging prefix (post `6785cc9`) | Installs headers (incl. `api.h`), `wshlib.lib`, `wshlib.def`, `wshlib.dll`, `wsh.exe` | Local install |
 | 2026-08-30 | `ctest --preset x64-debug -R embedding-installed-sdk` (post `6785cc9`) | Pass: host compiled against installed headers + import def, ran on installed DLL | Local CTest run |
 | 2026-08-30 | Full embedding suite (post `6785cc9`) | Pass (7/7) | Local CTest run |
+| 2026-08-30 | `m8-traceability` (post `ff37162`) | Pass: 6 requirements, 6 specifications, 6 implementations | Local CTest run |
+| 2026-08-30 | Controlled `m8-TC-0100..0105` (post `ff37162`) | Pass (6/6) | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -80,7 +83,8 @@ total.
 
 | Measure | Value | Source or interpretation |
 | --- | ---: | --- |
-| M8 CTest cases added | 7 | `abi-conformance`, `abi-conformance-shared`, `abi-header-hygiene`, `embedding-host-example`, `embedding-host-python`, `abi-export-manifest`, `embedding-installed-sdk` |
+| M8 controlled test cases | 6 | `m8-TC-0100..0105`, run through `run-m8-test`, plus the `m8-traceability` gate (consolidated from the earlier direct tests) |
+| M8 traceable requirement triples | 6 | requirement + TeX specification + implementation, verified by `m8-traceability` |
 | ABI 1 public symbols (manifest) | 101 | `tests/embedding/abi1-exports.txt` (incl. `wsh_embedding_abi_version`) |
 | DLL exported symbols before restriction | 286 | `wshlib.def` under export-all; runtime/CRT/internal leak |
 | DLL exported symbols after restriction | 100 | `wshlib.def` under `WSH_API`; exactly the ABI 1 manifest |
@@ -103,6 +107,7 @@ total.
 | Public header hygiene test (`9ed8936`) | ~18,000 est. | Not reported | Claude Code, assistant estimate |
 | Installed-SDK consumption test (`6785cc9`) | ~26,000 est. | Not reported | Claude Code, assistant estimate |
 | M8 review record (`1b3a3ae`) | ~20,000 est. | Not reported | Claude Code, assistant estimate |
+| M8 Specify artifacts + traceability (`ff37162`) | ~52,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -132,12 +137,13 @@ exported. All committed and pushed; validated on `x64-debug`.
    adding one needs a resource compiler absent from the TinyCC toolchain. Either
    introduce a resource-compilation step or record the resource omission as an
    approved release limitation; `SOVERSION` remains asserted through the build.
-3. **WSP phase artifacts.** Design (`m08-design.md`, `8209d16`) and Review
-   (`m08-review.md`, `1b3a3ae`) are done. Still to produce: M8 Specify
-   (requirements under `docs/requirements/m8`), controlled test specifications
-   (`docs/tests/m8`), traceability wiring (an `m8-traceability` CTest like the
-   earlier milestones), TeX evidence, and closeout (`m08-closeout.md`); then
-   record the post-M8 roadmap recalibration.
+3. **WSP phase artifacts.** Design (`8209d16`), Review (`1b3a3ae`), Specify
+   (requirements/specs/implementations and the `m8-traceability` gate,
+   `ff37162`) are done. Still to produce: TeX **evidence** generation for the
+   controlled cases (a `run-m8-test` evidence path plus an `m8-evidence` CTest
+   like the earlier milestones, gated on the TeX pipeline) and the closeout
+   (`m08-closeout.md`); then record the post-M8 roadmap recalibration and add
+   the M8 row to the Milestone Status Record.
 4. **Cross-architecture.** `x86` is verified: the export set is exactly the
    100 undecorated symbols and the C embedding suite passes (the FFI test is
    correctly skipped for the 64-bit interpreter). `arm64` cross-compiles but
