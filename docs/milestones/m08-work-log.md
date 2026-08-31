@@ -7,8 +7,8 @@ examples, conformance and misuse tests).
 
 **Author:** Claude (Overlord cross-project assistant), on behalf of the owner.
 
-**Status:** Complete (2026-08-30); ARM64 execution and the PE version resource
-are carried to M9/release per the closeout.
+**Status:** Complete (2026-08-30), including the post-closeout canonical
+traceability and ABI correction; ARM64 execution remains M9 follow-up.
 
 This log records the chronological execution of the M8 milestone. It
 supplements, and does not replace, the accepted [M8 plan](m08-plan.md), the
@@ -37,6 +37,7 @@ total.
 | 2026-08-30 #13 | Review | Write the M8 review record (checklist, defect patterns, residual boundaries) | Commit `1b3a3ae` |
 | 2026-08-30 #14 | Specify | Add M8 requirements, TeX test specs, and controlled implementations (TC-0100..0105); wire m8-traceability and consolidate the embedding tests into the controlled pattern | Commit `ff37162` |
 | 2026-08-30 #15 | Verify/evidence | Generate controlled execution-evidence records per case; wire the m8-evidence gate (6 passing records) | Commit `1d9f5a9` |
+| 2026-08-30 #16 | Audit/correct | Map canonical requirements 0069--0073, implement bounded host-command registration and C/Python coverage, add TC-0106 executable/static/shared equivalence, and embed PE resources | Working increment after `1384629` |
 
 ## Verification Log
 
@@ -67,6 +68,7 @@ total.
 | 2026-08-30 | Controlled `m8-TC-0100..0105` (post `ff37162`) | Pass (6/6) | Local CTest run |
 | 2026-08-30 | `m8-evidence` (post `1d9f5a9`) | Pass: 6 passing execution-evidence records validated | Local CTest run |
 | 2026-08-30 | Full M8 suite (post `1d9f5a9`) | Pass (8/8: traceability + 6 controlled + evidence) | Local CTest run |
+| 2026-08-30 | Corrected `^m8-` suite | Pass (9/9: traceability + 7 controlled + evidence) | Local x64 CTest run |
 
 ## Decisions and Scope Changes
 
@@ -82,17 +84,18 @@ total.
 | Item | Effect | Response | Status or owner |
 | --- | --- | --- | --- |
 | D-0801: `wsh_shared` was built from `wshlib.c` linking the static core archive | The linker pulled only version objects referenced by `wshlib.c`; the DLL omitted `wsh_context_create` and the rest of the ABI. The C shared "parity" test passed only because it also linked static `wsh_core`, masking the gap | Compiled `WSH_CORE_SOURCES` into `wsh_shared`; a Python ctypes host confirmed the symbols now resolve from the DLL | Closed (`048c664`) |
+| D-0802: M8 traceability validated only derived 0100--0105 allocations | Canonical requirements 0069--0073 were absent; host registration and executable equivalence were not implemented | Added canonical allocations, 103-symbol host-command ABI, C/Python cases, TC-0106, and cross-artifact comparison | Closed in post-closeout correction |
 
 ## Measurements
 
 | Measure | Value | Source or interpretation |
 | --- | ---: | --- |
-| M8 controlled test cases | 6 | `m8-TC-0100..0105`, run through `run-m8-test`, plus the `m8-traceability` gate (consolidated from the earlier direct tests) |
-| M8 traceable requirement triples | 6 | requirement + TeX specification + implementation, verified by `m8-traceability` |
-| ABI 1 public symbols (manifest) | 101 | `tests/embedding/abi1-exports.txt` (incl. `wsh_embedding_abi_version`) |
+| M8 controlled test cases | 7 | `m8-TC-0100..0106`, plus traceability and evidence gates |
+| M8 traceable requirements | 11 | canonical 0069--0073 plus derived 0100--0105 |
+| ABI 1 public symbols (manifest) | 103 | Includes host-command registration and runtime ABI accessor |
 | DLL exported symbols before restriction | 286 | `wshlib.def` under export-all; runtime/CRT/internal leak |
-| DLL exported symbols after restriction | 100 | `wshlib.def` under `WSH_API`; exactly the ABI 1 manifest |
-| Defects found and closed | 1 | D-0801 (shared library omitted the ABI) |
+| DLL exported symbols after initial restriction | 100 | Historical value at `20f7931`; the current ABI 1 manifest contains 103 symbols |
+| Defects found and closed | 2 | D-0801 shared-library omission; D-0802 canonical traceability/behavior gap |
 
 ## Resource Usage
 
@@ -121,38 +124,13 @@ Retained evidence is the CTest output and the Git commit history on
 changes and remains untouched. Work remains on `master`, matching current
 repository practice.
 
-**M8 progress to date (Implement phase, partial):** the static and shared
-embedding libraries build and pass a conformance and misuse suite through both
-linkages; a C host and a Python ctypes FFI host build and run against the
-public headers and the shared DLL; the shared library now contains the whole
-ABI (D-0801 fixed); and the approved 100-symbol ABI 1 manifest is verified as
-exported. All committed and pushed; validated on `x64-debug`.
+**M8 final state:** the milestone is closed, including the post-closeout
+correction. The static and shared SDKs, C and Python hosts, exact 103-symbol ABI
+manifest, bounded host-command registration, cross-artifact equivalence, and PE
+version resources are covered by seven controlled cases plus traceability and
+evidence gates. Local x64 verification is complete. Cross-architecture results
+are retained by GitHub Actions and tracked as M9 platform evidence; historical
+minimum-version operating-system rows remain explicit M9 gaps.
 
-**Remaining M8 work for the next session:**
-
-1. **Export surface — done (`20f7931`).** The DLL now exports exactly the ABI 1
-   symbols via `WSH_API` markers, and `verify-abi-exports.ps1` fails on any
-   missing or unexpected export. Header self-containment and no-internal-type
-   are covered by `abi-header-hygiene` (`9ed8936`), and the
-   `embedding-installed-sdk` test (`6785cc9`) builds and runs the host against
-   the installed headers, import library, and DLL. This item is complete.
-2. **Version resource.** A runtime `wsh_embedding_abi_version()` accessor now
-   exposes the ABI value for negotiation (`7c1d6a8`). The DLL carries no PE
-   version resource — TinyCC embeds no `VERSIONINFO` from CMake's `VERSION`, and
-   adding one needs a resource compiler absent from the TinyCC toolchain. Either
-   introduce a resource-compilation step or record the resource omission as an
-   approved release limitation; `SOVERSION` remains asserted through the build.
-3. **WSP phase artifacts.** Design (`8209d16`), Review (`1b3a3ae`), Specify +
-   traceability (`ff37162`), and controlled Evidence (`1d9f5a9`,
-   `m8-evidence`) are done. Remaining: closeout (`m08-closeout.md`), the
-   post-M8 roadmap recalibration, and the M8 Milestone Status Record row.
-4. **Cross-architecture.** `x86` is verified: the export set is exactly the
-   100 undecorated symbols and the C embedding suite passes (the FFI test is
-   correctly skipped for the 64-bit interpreter). `arm64` cross-compiles but
-   is not executable on this x64 host; run its embedding suite on native
-   ARM64 hardware or emulation, ideally with an arm64 interpreter for the FFI
-   host, before the exit claim.
-
-**Next responsible party:** the maintainer or a subsequent assistant session,
-continuing M8 from the installed-header compilation test and the WSP Specify /
-traceability / evidence artifacts.
+**Next responsible party:** continue M9 compatibility/security closure from the
+open rows in `m09-verification-matrix.md` and `m09-dfs-control-verification.md`.

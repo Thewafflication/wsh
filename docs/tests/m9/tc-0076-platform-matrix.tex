@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0076}
+\def\TCTitle{Exact OS and architecture evidence matrix}
+\def\TCPurpose{Verify every platform claim has a separate evidence disposition and current native runs are not substituted for oldest-host evidence.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0076}
+\def\TCDesignRef{WSH-SPEC-PLATFORM-0001}
+\def\TCFeatureRef{x86, x64, and ARM64 support evidence}
+\def\TCTestTechnique{Matrix and retained-evidence inspection.}
+\def\TCPreconditions{The M9 verification matrix exists.}
+\def\TCEnvironment{Local x64 or native GitHub Actions matrix host.}
+\def\TCAssumptions{Only a matching native or approved-equivalent environment can produce Pass.}
+\def\TCInputData{All minimum and current representative rows.}
+\def\TCInitialState{The running architecture is reported independently.}
+\def\TCProcedure{Validate matrix row uniqueness, status vocabulary, evidence references, and current runner architecture.}
+\def\TCExpectedResult{Every claim is visible and no Open row is reported as Pass.}
+\def\TCPostConditions{Oldest-host gaps remain explicit until executed.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0106}
+\def\TCTitle{Executable, static, and shared conformance equivalence}
+\def\TCPurpose{Verify all three artifacts return identical results for the same language and embedded-standard-library sources.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0073}
+\def\TCDesignRef{ADR-0005 and M8 design}
+\def\TCFeatureRef{cross-artifact language and standard-library conformance}
+\def\TCTestTechnique{Interface conformance and equivalence partitioning.}
+\def\TCPreconditions{The executable and both embedding conformance hosts are built.}
+\def\TCEnvironment{Local TinyCC/WCRT build tree for the target architecture.}
+\def\TCAssumptions{Each host uses the same Windows runtime implementation.}
+\def\TCInputData{Assignment/function, text-library, system-library, and nonzero-exit sources.}
+\def\TCInitialState{Each source starts in a fresh process and isolated context.}
+\def\TCProcedure{Run every source through wsh.exe, the static host, and the shared host and compare reduced status values.}
+\def\TCExpectedResult{All three artifacts return the same expected status for every source.}
+\def\TCPostConditions{Every host destroys its evaluator, context, and runtime.}
+\TCTemplate
+\end{document}

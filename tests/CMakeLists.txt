@@ -71,6 +71,19 @@ target_include_directories(
 )
 target_link_libraries(abi-conformance-shared-tests PRIVATE wsh_shared)
 
+# One public host is linked each way and compared with wsh.exe using the same
+# language and standard-library sources.
+add_executable(embedding-equivalence-static embedding_equivalence.c)
+target_include_directories(
+    embedding-equivalence-static PRIVATE "${CMAKE_SOURCE_DIR}/include")
+target_link_libraries(
+    embedding-equivalence-static PRIVATE wsh_static wsh_windows_runtime)
+add_executable(embedding-equivalence-shared embedding_equivalence.c)
+target_include_directories(
+    embedding-equivalence-shared PRIVATE "${CMAKE_SOURCE_DIR}/include")
+target_link_libraries(
+    embedding-equivalence-shared PRIVATE wsh_shared wsh_windows_runtime)
+
 # The public C host example must build against the installed public headers
 # only and link the static embedding library, proving no internal type leaks.
 add_executable(embedding-host-example
@@ -117,6 +130,8 @@ wsh_configure_executable(resource-bounds)
 wsh_configure_executable(abi-conformance-tests)
 wsh_configure_executable(abi-header-hygiene)
 wsh_configure_executable(abi-conformance-shared-tests)
+wsh_configure_executable(embedding-equivalence-static)
+wsh_configure_executable(embedding-equivalence-shared)
 wsh_configure_executable(embedding-host-example)
 wsh_configure_executable(portable-core-tests)
 wsh_configure_executable(parser-tests)
@@ -209,7 +224,7 @@ add_test(
 )
 set_tests_properties(m8-traceability PROPERTIES LABELS "M8;quality")
 
-set(WSH_M8_TEST_IDS 0100 0101 0102 0103 0104 0105)
+set(WSH_M8_TEST_IDS 0100 0101 0102 0103 0104 0105 0106)
 set(WSH_M8_CTEST_NAMES)
 foreach(test_id IN LISTS WSH_M8_TEST_IDS)
     add_test(
@@ -233,6 +248,9 @@ foreach(test_id IN LISTS WSH_M8_TEST_IDS)
             -Config "$<CONFIG>"
             -HostSource "${CMAKE_SOURCE_DIR}/examples/embedding/host.c"
             -StageDir "${CMAKE_BINARY_DIR}/sdk-stage/$<CONFIG>"
+            -Wsh "$<TARGET_FILE:wsh>"
+            -EquivalenceStatic "$<TARGET_FILE:embedding-equivalence-static>"
+            -EquivalenceShared "$<TARGET_FILE:embedding-equivalence-shared>"
             -TargetArchitecture "${WSH_TARGET_ARCHITECTURE}"
             -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m8/$<CONFIG>/current"
             -RepositoryRoot "${CMAKE_SOURCE_DIR}"
@@ -255,13 +273,74 @@ add_test(
         -NoProfile
         -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
         -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m8/$<CONFIG>/current"
-        -ExpectedCount 6
+        -ExpectedCount 7
 )
 set_tests_properties(
     m8-evidence
     PROPERTIES
         DEPENDS "${WSH_M8_CTEST_NAMES}"
         LABELS "M8;quality"
+)
+
+add_test(
+    NAME m9-traceability
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m9"
+        -TestSpecificationsPath "docs/tests/m9"
+        -TestImplementationsPath "tests/m9"
+)
+set_tests_properties(m9-traceability PROPERTIES LABELS "M9;quality")
+
+set(WSH_M9_TEST_IDS 0074 0075 0076 0077)
+set(WSH_M9_CTEST_NAMES)
+foreach(test_id IN LISTS WSH_M9_TEST_IDS)
+    add_test(
+        NAME "m9-TC-${test_id}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/m9/run-tc-${test_id}-m9.ps1"
+            -FuzzSmoke "$<TARGET_FILE:fuzz-smoke>"
+            -ResourceBounds "$<TARGET_FILE:resource-bounds>"
+            -DfsRecord "${CMAKE_SOURCE_DIR}/docs/milestones/m09-dfs-control-verification.md"
+            -MatrixRecord "${CMAKE_SOURCE_DIR}/docs/milestones/m09-verification-matrix.md"
+            -Executable "$<TARGET_FILE:wsh>"
+            -SharedLibrary "$<TARGET_FILE:wsh_shared>"
+            -ProjectVersion "${PROJECT_VERSION}"
+            -TargetArchitecture "${WSH_TARGET_ARCHITECTURE}"
+            -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m9/$<CONFIG>/current"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+            -Configuration "$<CONFIG>"
+            -Toolchain "${WSH_TEST_TOOLCHAIN}"
+    )
+    set_tests_properties(
+        "m9-TC-${test_id}"
+        PROPERTIES
+            DEPENDS m9-traceability
+            LABELS "M9;controlled;security;compatibility"
+            TIMEOUT "${WSH_TEST_TIMEOUT}"
+    )
+    list(APPEND WSH_M9_CTEST_NAMES "m9-TC-${test_id}")
+endforeach()
+
+add_test(
+    NAME m9-evidence
+    COMMAND
+        "${WSH_POWERSHELL_EXECUTABLE}"
+        -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-TestEvidence.ps1"
+        -EvidenceDirectory "${CMAKE_BINARY_DIR}/test-evidence/m9/$<CONFIG>/current"
+        -ExpectedCount 4
+)
+set_tests_properties(
+    m9-evidence
+    PROPERTIES
+        DEPENDS "${WSH_M9_CTEST_NAMES}"
+        LABELS "M9;quality"
 )
 
 add_test(

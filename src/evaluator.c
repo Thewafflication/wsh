@@ -69,6 +69,16 @@ typedef struct eval_function {
     eval_node *body;
 } eval_function;
 
+/** One evaluator-owned host-command registration. */
+typedef struct eval_host_command {
+    /** Owned exact namespaced command name. */
+    wsh_string *name;
+    /** Borrowed synchronous callback. */
+    wsh_host_command_fn callback;
+    /** Borrowed callback state. */
+    void *user_data;
+} eval_host_command;
+
 /** Prior exact binding retained for one local scope. */
 typedef struct eval_local {
     /** Owned exact variable name. */
@@ -144,6 +154,14 @@ struct wsh_evaluator {
     size_t function_count;
     /** Number of allocated function slots. */
     size_t function_capacity;
+    /** Owned host-command registration table. */
+    eval_host_command *host_commands;
+    /** Number of initialized host-command registrations. */
+    size_t host_command_count;
+    /** Number of allocated host-command slots. */
+    size_t host_command_capacity;
+    /** Nonzero while a public evaluation or host callback is active. */
+    int active_call;
     /** Optional borrowed active substitution capture. */
     wsh_string_builder *capture;
     /** Optional borrowed descriptor/launch plan for the active command. */
@@ -1694,6 +1712,39 @@ static size_t eval_find_function(
     return evaluator->function_count;
 }
 
+/** Find an exact host-command registration or return the current count. */
+static size_t eval_find_host_command(
+    const wsh_evaluator *evaluator,
+    wsh_string_view name)
+{
+    size_t index;
+
+    for (index = 0U; index < evaluator->host_command_count; ++index) {
+        if (wsh_string_view_equal(
+                wsh_string_bytes(evaluator->host_commands[index].name),
+                name)) {
+            return index;
+        }
+    }
+    return evaluator->host_command_count;
+}
+
+/** Return whether a command name has nonempty namespace and local parts. */
+static int eval_host_name_valid(wsh_string_view name)
+{
+    size_t index;
+
+    if (name.data == NULL || name.length < 4U) {
+        return 0;
+    }
+    for (index = 1U; index + 2U < name.length; ++index) {
+        if (name.data[index] == ':' && name.data[index + 1U] == ':') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /** Destroy one persistent function record. */
 static void eval_function_destroy(
     wsh_evaluator *evaluator,
@@ -2703,6 +2754,66 @@ static wsh_result eval_runtime(
     if (result != WSH_OK) {
         wsh_status_list_destroy(*out_status);
         *out_status = NULL;
+    }
+    return result;
+}
+
+/** Invoke one registered host command synchronously. */
+static wsh_result eval_invoke_host_command(
+    wsh_evaluator *evaluator,
+    const eval_node *node,
+    size_t index,
+    const wsh_value *arguments,
+    wsh_status_list **out_status)
+{
+    eval_host_command *command;
+    wsh_value_builder *output_builder;
+    wsh_status_builder *status_builder;
+    wsh_value *output;
+    wsh_result result;
+
+    command = &evaluator->host_commands[index];
+    output_builder = NULL;
+    status_builder = NULL;
+    output = NULL;
+    *out_status = NULL;
+    result = wsh_value_builder_create(
+        &evaluator->allocator, &evaluator->limits, &output_builder);
+    if (result == WSH_OK) {
+        result = wsh_status_builder_create(
+            &evaluator->allocator, &evaluator->limits, &status_builder);
+    }
+    if (result == WSH_OK) {
+        result = command->callback(
+            command->user_data,
+            evaluator->context,
+            arguments,
+            output_builder,
+            status_builder);
+    }
+    if (result == WSH_OK) {
+        result = wsh_value_builder_finish(output_builder, &output);
+    }
+    if (result == WSH_OK) {
+        result = wsh_status_builder_finish(status_builder, out_status);
+    }
+    if (result == WSH_OK && wsh_status_list_count(*out_status) == 0U) {
+        result = WSH_ERR_MISMATCH;
+    }
+    if (result == WSH_OK) {
+        result = eval_capture_value(evaluator, output);
+    }
+    wsh_value_builder_destroy(output_builder);
+    wsh_status_builder_destroy(status_builder);
+    wsh_value_destroy(output);
+    if (result != WSH_OK) {
+        wsh_status_list_destroy(*out_status);
+        *out_status = NULL;
+        eval_diagnostic(
+            evaluator,
+            WSH_DIAGNOSTIC_RUNTIME,
+            "host command callback failed",
+            node);
     }
     return result;
 }
@@ -3843,6 +3954,7 @@ static wsh_result eval_simple_command(
     int temporary_scope;
     int handled;
     size_t function_index;
+    size_t host_command_index;
     wsh_value *command_arguments;
     wsh_string_view subject;
     size_t subject_index;
@@ -4032,9 +4144,19 @@ static wsh_result eval_simple_command(
             WSH_RUNTIME_LAUNCH_CAPTURE : 0U;
         evaluator->active_plan = &runtime_plan;
         plan_active = 1;
+        host_command_index = force_external ? evaluator->host_command_count :
+            eval_find_host_command(evaluator, subject);
         function_index = force_external ? evaluator->function_count :
             eval_find_function(evaluator, subject);
         if (!force_external &&
+            host_command_index < evaluator->host_command_count) {
+            result = eval_invoke_host_command(
+                evaluator,
+                node,
+                host_command_index,
+                command_arguments,
+                out_status);
+        } else if (!force_external &&
             function_index < evaluator->function_count) {
             result = eval_call_function(
                 evaluator, node, function_index, &words, out_status);
@@ -4171,6 +4293,14 @@ static wsh_result eval_subshell(
         } else {
             eval_function_destroy(child, &function);
         }
+    }
+    for (index = 0U; result == WSH_OK &&
+         index < evaluator->host_command_count; ++index) {
+        result = wsh_evaluator_register_host_command(
+            child,
+            wsh_string_bytes(evaluator->host_commands[index].name),
+            evaluator->host_commands[index].callback,
+            evaluator->host_commands[index].user_data);
     }
     if (result == WSH_OK) {
         result = eval_scope_push(child);
@@ -4826,7 +4956,7 @@ void wsh_evaluator_destroy(wsh_evaluator *evaluator)
 {
     size_t index;
 
-    if (evaluator == NULL) {
+    if (evaluator == NULL || evaluator->active_call) {
         return;
     }
     while (evaluator->scope != NULL) {
@@ -4837,6 +4967,11 @@ void wsh_evaluator_destroy(wsh_evaluator *evaluator)
     }
     evaluator->allocator.deallocate(
         evaluator->allocator.user_data, evaluator->functions);
+    for (index = 0U; index < evaluator->host_command_count; ++index) {
+        wsh_string_destroy(evaluator->host_commands[index].name);
+    }
+    evaluator->allocator.deallocate(
+        evaluator->allocator.user_data, evaluator->host_commands);
     wsh_status_list_destroy(evaluator->signal_status);
     wsh_string_destroy(evaluator->source_name);
     evaluator->allocator.deallocate(
@@ -4858,7 +4993,11 @@ wsh_result wsh_evaluate(
         wsh_parse_tree_root(tree) == NULL) {
         return WSH_ERR_INVALID;
     }
+    if (evaluator->active_call) {
+        return WSH_ERR_MISMATCH;
+    }
     *out_status = NULL;
+    evaluator->active_call = 1;
     evaluator->steps = 0U;
     evaluator->depth = 0U;
     evaluator->signal = EVAL_SIGNAL_NONE;
@@ -4897,7 +5036,87 @@ wsh_result wsh_evaluate(
         *out_status = NULL;
     }
     eval_node_destroy(evaluator, root);
+    evaluator->active_call = 0;
     return result;
+}
+
+/** @brief Implements wsh_evaluator_register_host_command. */
+wsh_result wsh_evaluator_register_host_command(
+    wsh_evaluator *evaluator,
+    wsh_string_view name,
+    wsh_host_command_fn callback,
+    void *user_data)
+{
+    wsh_string *owned_name;
+    wsh_result result;
+
+    if (evaluator == NULL || callback == NULL ||
+        !eval_host_name_valid(name)) {
+        return WSH_ERR_INVALID;
+    }
+    if (evaluator->active_call) {
+        return WSH_ERR_MISMATCH;
+    }
+    if (eval_find_host_command(evaluator, name) <
+        evaluator->host_command_count) {
+        return WSH_ERR_MISMATCH;
+    }
+    owned_name = NULL;
+    result = wsh_string_create(
+        &evaluator->allocator, &evaluator->limits, name, &owned_name);
+    if (result == WSH_OK) {
+        result = eval_grow(
+            evaluator,
+            (void **)&evaluator->host_commands,
+            sizeof(*evaluator->host_commands),
+            evaluator->host_command_count,
+            &evaluator->host_command_capacity,
+            evaluator->host_command_count + 1U,
+            evaluator->limits.max_variables);
+    }
+    if (result != WSH_OK) {
+        wsh_string_destroy(owned_name);
+        return result;
+    }
+    evaluator->host_commands[evaluator->host_command_count].name = owned_name;
+    evaluator->host_commands[evaluator->host_command_count].callback = callback;
+    evaluator->host_commands[evaluator->host_command_count].user_data =
+        user_data;
+    evaluator->host_command_count += 1U;
+    return WSH_OK;
+}
+
+/** @brief Implements wsh_evaluator_unregister_host_command. */
+wsh_result wsh_evaluator_unregister_host_command(
+    wsh_evaluator *evaluator,
+    wsh_string_view name)
+{
+    size_t index;
+
+    if (evaluator == NULL || !eval_host_name_valid(name)) {
+        return WSH_ERR_INVALID;
+    }
+    if (evaluator->active_call) {
+        return WSH_ERR_MISMATCH;
+    }
+    index = eval_find_host_command(evaluator, name);
+    if (index == evaluator->host_command_count) {
+        return WSH_ERR_INVALID;
+    }
+    wsh_string_destroy(evaluator->host_commands[index].name);
+    if (index + 1U < evaluator->host_command_count) {
+        memmove(
+            &evaluator->host_commands[index],
+            &evaluator->host_commands[index + 1U],
+            (evaluator->host_command_count - index - 1U) *
+                sizeof(*evaluator->host_commands));
+    }
+    evaluator->host_command_count -= 1U;
+    memset(
+        &evaluator->host_commands[evaluator->host_command_count],
+        0,
+        sizeof(*evaluator->host_commands));
+    return WSH_OK;
 }
 
 /** @brief Implements wsh_evaluator_function_count. */
@@ -4936,6 +5155,10 @@ wsh_result wsh_evaluator_invoke_signal(
     if (evaluator == NULL || out_status == NULL || name.length == 0U) {
         return WSH_ERR_INVALID;
     }
+    if (evaluator->active_call) {
+        return WSH_ERR_MISMATCH;
+    }
+    evaluator->active_call = 1;
     *out_status = NULL;
     result = eval_status_one(evaluator, default_status, out_status);
     if (result == WSH_OK) {
@@ -4943,6 +5166,7 @@ wsh_result wsh_evaluator_invoke_signal(
     }
     index = eval_find_function(evaluator, name);
     if (result != WSH_OK || index == evaluator->function_count) {
+        evaluator->active_call = 0;
         return result;
     }
     wsh_status_list_destroy(*out_status);
@@ -4985,6 +5209,7 @@ wsh_result wsh_evaluator_invoke_signal(
         wsh_status_list_destroy(*out_status);
         *out_status = NULL;
     }
+    evaluator->active_call = 0;
     return result;
 }
 

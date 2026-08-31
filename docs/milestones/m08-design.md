@@ -13,7 +13,7 @@ plus the version accessors. These are declared across `wsh/core.h`,
 `wsh/evaluator.h`, `wsh/parser.h`, and `wsh/wsh.h`, and compiled from
 `WSH_CORE_SOURCES` and `src/wshlib.c`.
 
-ABI 1 is exactly the 101 `wsh_*` functions in those four headers, recorded in
+ABI 1 is exactly the 103 `wsh_*` functions in those four headers, recorded in
 `tests/embedding/abi1-exports.txt`. The Windows runtime (`wsh_windows_runtime_*`)
 is deliberately excluded from the portable embedding DLL: it is a host-side
 integration layer linked into `wsh.exe`, not part of the portable, side-effect
@@ -67,6 +67,11 @@ context/variable/export/diagnostic lifecycle, and checks that each documented
 misuse returns a defined error. The export manifest test proves the shared
 surface is exactly ABI 1.
 
+Hosts register exact namespaced commands on an evaluator. The evaluator owns
+the copied name while the host retains callback state; callbacks are
+synchronous, receive structured arguments and bounded result builders, and
+cannot reenter or mutate registration on the active evaluator.
+
 ## Host Examples
 
 A C host (`examples/embedding/host.c`) and a Python `ctypes` FFI host
@@ -83,6 +88,7 @@ load a 32-bit DLL.
 `WSH_EMBEDDING_ABI` is the compile-time ABI value; `wsh_embedding_abi_version()`
 is its runtime counterpart, letting a host negotiate compatibility without
 recompiling against the header. A future ABI change increments this single
-value. Embedding the PE version resource and asserting it against the project
-version and `SOVERSION` remains open pending a resource compiler in the TinyCC
-toolchain, and is tracked in the work log.
+value. After linking, the build compiles controlled `VERSIONINFO` with Windows
+SDK `rc.exe` and installs its raw RT_VERSION payload through
+`UpdateResourceW`. This leaves TinyCC and the PE import surface unchanged while
+giving the executable and DLL consistent file/product identity.

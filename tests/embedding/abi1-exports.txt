@@ -33,6 +33,8 @@ wsh_evaluator_function_at
 wsh_evaluator_function_count
 wsh_evaluator_invoke_signal
 wsh_evaluator_options_init
+wsh_evaluator_register_host_command
+wsh_evaluator_unregister_host_command
 wsh_fake_runtime_call_count
 wsh_fake_runtime_complete
 wsh_fake_runtime_create

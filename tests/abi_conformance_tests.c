@@ -10,6 +10,8 @@
  */
 
 #include "wsh/core.h"
+#include "wsh/evaluator.h"
+#include "wsh/parser.h"
 #include "wsh/wsh.h"
 
 #include <stdio.h>
@@ -56,6 +58,70 @@ static wsh_result make_single_value(const char *item, wsh_value **out_value)
         return result;
     }
     return wsh_value_builder_finish(builder, out_value);
+}
+
+/** State borrowed by the host-command callback. */
+typedef struct host_command_state {
+    wsh_evaluator *evaluator;
+    const wsh_parse_tree *tree;
+    size_t calls;
+    wsh_result nested_result;
+    wsh_result nested_signal_result;
+} host_command_state;
+
+/** Validate structured arguments and return one output item and status. */
+static wsh_result host_probe(
+    void *user_data,
+    wsh_context *context,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    host_command_state *state = (host_command_state *)user_data;
+    wsh_status_list *nested_status = NULL;
+    wsh_string_view first;
+    wsh_string_view second;
+
+    if (state == NULL || context == NULL || arguments == NULL ||
+        output == NULL || status == NULL || wsh_value_count(arguments) != 2U ||
+        wsh_value_at(arguments, 0U, &first) != WSH_OK ||
+        wsh_value_at(arguments, 1U, &second) != WSH_OK ||
+        !wsh_string_view_equal(first, wsh_string_view_from_cstr("alpha")) ||
+        !wsh_string_view_equal(second, wsh_string_view_from_cstr("beta"))) {
+        return WSH_ERR_INVALID;
+    }
+    state->calls += 1U;
+    state->nested_result = wsh_evaluate(
+        state->evaluator, state->tree, &nested_status);
+    wsh_status_list_destroy(nested_status);
+    nested_status = NULL;
+    state->nested_signal_result = wsh_evaluator_invoke_signal(
+        state->evaluator,
+        wsh_string_view_from_cstr("sigint"),
+        130U,
+        &nested_status);
+    wsh_status_list_destroy(nested_status);
+    if (wsh_value_builder_append(
+            output, wsh_string_view_from_cstr("host-output")) != WSH_OK) {
+        return WSH_ERR_RESOURCE;
+    }
+    return wsh_status_builder_append(status, 23U);
+}
+
+/** Return a defined callback failure without publishing partial builders. */
+static wsh_result host_failure(
+    void *user_data,
+    wsh_context *context,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status)
+{
+    (void)user_data;
+    (void)context;
+    (void)arguments;
+    (void)output;
+    (void)status;
+    return WSH_ERR_INTERNAL;
 }
 
 /** The frozen ABI value and version accessors are stable and populated. */
@@ -199,12 +265,88 @@ static int test_misuse_is_defined(void)
     return 1;
 }
 
+/** Namespaced host commands are synchronous, structured, and non-reentrant. */
+static int test_host_command_registration(void)
+{
+    wsh_context *context = NULL;
+    wsh_evaluator *evaluator = NULL;
+    wsh_source *source = NULL;
+    wsh_parse_tree *tree = NULL;
+    wsh_status_list *status = NULL;
+    host_command_state state;
+    uint32_t code = 0U;
+    size_t diagnostics_before;
+
+    memset(&state, 0, sizeof(state));
+    CHECK(wsh_context_create(NULL, &context) == WSH_OK);
+    CHECK(wsh_evaluator_create(context, NULL, &evaluator) == WSH_OK);
+    CHECK(wsh_source_create(
+              NULL,
+              NULL,
+              (const unsigned char *)"host::probe alpha beta",
+              strlen("host::probe alpha beta"),
+              &source) == WSH_OK);
+    CHECK(wsh_parse(NULL, source, &tree) == WSH_OK);
+    CHECK(wsh_parse_tree_status(tree) == WSH_SYNTAX_COMPLETE);
+    state.evaluator = evaluator;
+    state.tree = tree;
+
+    CHECK(wsh_evaluator_register_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("plain"),
+              host_probe,
+              &state) == WSH_ERR_INVALID);
+    CHECK(wsh_evaluator_register_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("host::probe"),
+              host_probe,
+              &state) == WSH_OK);
+    CHECK(wsh_evaluator_register_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("host::probe"),
+              host_probe,
+              &state) == WSH_ERR_MISMATCH);
+    CHECK(wsh_evaluate(evaluator, tree, &status) == WSH_OK);
+    CHECK(state.calls == 1U);
+    CHECK(state.nested_result == WSH_ERR_MISMATCH);
+    CHECK(state.nested_signal_result == WSH_ERR_MISMATCH);
+    CHECK(wsh_status_list_count(status) == 1U);
+    CHECK(wsh_status_list_at(status, 0U, &code) == WSH_OK);
+    CHECK(code == 23U);
+    wsh_status_list_destroy(status);
+    status = NULL;
+
+    CHECK(wsh_evaluator_unregister_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("host::probe")) == WSH_OK);
+    CHECK(wsh_evaluator_unregister_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("host::probe")) == WSH_ERR_INVALID);
+
+    CHECK(wsh_evaluator_register_host_command(
+              evaluator,
+              wsh_string_view_from_cstr("host::probe"),
+              host_failure,
+              NULL) == WSH_OK);
+    diagnostics_before = wsh_context_diagnostic_count(context);
+    CHECK(wsh_evaluate(evaluator, tree, &status) == WSH_ERR_INTERNAL);
+    CHECK(status == NULL);
+    CHECK(wsh_context_diagnostic_count(context) == diagnostics_before + 1U);
+
+    wsh_parse_tree_destroy(tree);
+    wsh_source_destroy(source);
+    wsh_evaluator_destroy(evaluator);
+    wsh_context_destroy(context);
+    return 1;
+}
+
 /** Controlled inventory for the ABI conformance executable. */
 static const test_case_entry test_cases[] = {
     {"ABI-IDENTITY", test_abi_identity},
     {"CONTEXT-LIFECYCLE", test_context_lifecycle},
     {"DIAGNOSTICS", test_diagnostics},
-    {"MISUSE-DEFINED", test_misuse_is_defined}
+    {"MISUSE-DEFINED", test_misuse_is_defined},
+    {"HOST-COMMAND-REGISTRATION", test_host_command_registration}
 };
 
 /**

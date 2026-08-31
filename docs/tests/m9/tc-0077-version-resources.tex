@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0077}
+\def\TCTitle{Consistent executable and DLL version resources}
+\def\TCPurpose{Verify both released PE kinds contain matching WSP version identity.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0077}
+\def\TCDesignRef{WSH-SPEC-PLATFORM-0001 section 2}
+\def\TCFeatureRef{Windows VERSIONINFO}
+\def\TCTestTechnique{Automated PE metadata inspection.}
+\def\TCPreconditions{wsh.exe and wshlib.dll are built.}
+\def\TCEnvironment{Native Windows host for the target build.}
+\def\TCAssumptions{PowerShell exposes the Win32 version resource fields.}
+\def\TCInputData{The project version and both PE paths.}
+\def\TCInitialState{Both files exist and are closed.}
+\def\TCProcedure{Read FileVersion, ProductVersion, ProductName, descriptions, and filenames from both resources.}
+\def\TCExpectedResult{Both resources exist and agree with the project version and controlled identity.}
+\def\TCPostConditions{Neither artifact is modified by inspection.}
+\TCTemplate
+\end{document}

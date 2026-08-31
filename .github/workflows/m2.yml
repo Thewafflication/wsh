@@ -98,7 +98,7 @@ jobs:
           $junit = Join-Path $env:GITHUB_WORKSPACE `
             'out/build/source-quality/quality-results.xml'
           ctest --test-dir out/build/source-quality `
-            -R '^(m2|m3|m4|m5)-(traceability|source-quality)$' `
+            -R '^((m2|m3|m4|m5|m6|m7|m8|m9)-traceability|(m2|m3|m4|m5)-source-quality)$' `
             --output-on-failure `
             --output-junit $junit `
             2>&1 | Tee-Object out/logs/source-quality-test.log

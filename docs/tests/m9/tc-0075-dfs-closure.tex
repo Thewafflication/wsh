@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0075}
+\def\TCTitle{DFS threat-to-control disposition completeness}
+\def\TCPurpose{Verify every accepted DFS threat has explicit evidence and a Passed, Approved residual, or Open disposition.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0075}
+\def\TCDesignRef{WSH-DFS-0001}
+\def\TCFeatureRef{security control and residual-risk closure}
+\def\TCTestTechnique{Traceability and document inspection.}
+\def\TCPreconditions{The controlled DFS verification record exists.}
+\def\TCEnvironment{Any repository verification host.}
+\def\TCAssumptions{An Open row is visible incompleteness, never a control Pass.}
+\def\TCInputData{The thirteen accepted threat rows from DFS section 6.}
+\def\TCInitialState{No inferred control result is permitted.}
+\def\TCProcedure{Compare the DFS threats with the verification record and validate every disposition and evidence field.}
+\def\TCExpectedResult{All threats are mapped exactly once; open risks remain explicitly Open.}
+\def\TCPostConditions{The record remains suitable for the M9 exit decision.}
+\TCTemplate
+\end{document}

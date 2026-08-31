@@ -13,6 +13,40 @@ enable_testing()
 
 set(WSH_EMBEDDING_ABI 1)
 
+# Compile one consistent Windows VERSIONINFO resource for every released PE.
+# The Windows SDK ships architecture-specific rc.exe frontends on both the
+# hosted x86/x64 runners and the native ARM64 runner.
+get_filename_component(WSH_SYSTEM_DRIVE "$ENV{ProgramFiles}" DIRECTORY)
+file(GLOB WSH_RC_CANDIDATES
+    "${WSH_SYSTEM_DRIVE}/Program Files (x86)/Windows Kits/10/bin/*/${WSH_TARGET_ARCHITECTURE}/rc.exe")
+list(SORT WSH_RC_CANDIDATES ORDER DESCENDING)
+list(LENGTH WSH_RC_CANDIDATES WSH_RC_CANDIDATE_COUNT)
+if(WSH_RC_CANDIDATE_COUNT EQUAL 0)
+    message(FATAL_ERROR "Windows SDK rc.exe is required for WSH version resources")
+endif()
+list(GET WSH_RC_CANDIDATES 0 WSH_RC_EXECUTABLE)
+find_program(WSH_RESOURCE_POWERSHELL NAMES pwsh REQUIRED)
+
+function(wsh_add_version_resource target file_type description internal_name filename)
+    set(WSH_RESOURCE_FILE_TYPE "${file_type}")
+    set(WSH_RESOURCE_DESCRIPTION "${description}")
+    set(WSH_RESOURCE_INTERNAL_NAME "${internal_name}")
+    set(WSH_RESOURCE_FILENAME "${filename}")
+    set(resource_source "${CMAKE_CURRENT_BINARY_DIR}/${target}-version.rc")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/wsh-version.rc.in"
+        "${resource_source}" @ONLY)
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+        "${resource_source}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/Add-VersionResource.ps1")
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${WSH_RESOURCE_POWERSHELL}" -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/Add-VersionResource.ps1"
+            -ResourceCompiler "${WSH_RC_EXECUTABLE}"
+            -ResourceSource "${resource_source}"
+            -Target "$<TARGET_FILE:${target}>"
+        VERBATIM)
+endfunction()
+
 if(NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
         "${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}")
@@ -157,6 +191,10 @@ add_executable(wsh
     src/interactive.c
     src/main.c
 )
+wsh_add_version_resource(
+    wsh 0x1L "Waughtal Shell" "wsh" "wsh.exe")
+wsh_add_version_resource(
+    wsh_shared 0x2L "Waughtal Shell Embedding Library" "wshlib" "wshlib.dll")
 
 target_include_directories(wsh
     PRIVATE

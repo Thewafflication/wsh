@@ -17,6 +17,21 @@ extern "C" {
 /** Opaque evaluator retaining functions and dynamic semantic state. */
 typedef struct wsh_evaluator wsh_evaluator;
 
+/**
+ * Synchronous host-command callback.
+ *
+ * The callback borrows every argument for the duration of the call. It may
+ * append zero or more output items and must append at least one status before
+ * returning WSH_OK. Calling back into the same evaluator is forbidden and is
+ * rejected with WSH_ERR_MISMATCH.
+ */
+typedef wsh_result (*wsh_host_command_fn)(
+    void *user_data,
+    wsh_context *context,
+    const wsh_value *arguments,
+    wsh_value_builder *output,
+    wsh_status_builder *status);
+
 /** Finite evaluator-specific ceilings and copied object options. */
 typedef struct wsh_evaluator_options {
     /** Allocator for evaluator-owned data. */
@@ -60,6 +75,22 @@ WSH_API wsh_result wsh_evaluate(
     wsh_evaluator *evaluator,
     const wsh_parse_tree *tree,
     wsh_status_list **out_status);
+
+/**
+ * Register one exact, namespaced host command such as `host::query`.
+ * The evaluator copies the name and borrows user_data until unregistration or
+ * evaluator destruction. Duplicate names are rejected.
+ */
+WSH_API wsh_result wsh_evaluator_register_host_command(
+    wsh_evaluator *evaluator,
+    wsh_string_view name,
+    wsh_host_command_fn callback,
+    void *user_data);
+
+/** Unregister one exact host-command name. */
+WSH_API wsh_result wsh_evaluator_unregister_host_command(
+    wsh_evaluator *evaluator,
+    wsh_string_view name);
 
 /** Return the number of persistent functions in definition order. */
 WSH_API size_t wsh_evaluator_function_count(const wsh_evaluator *evaluator);

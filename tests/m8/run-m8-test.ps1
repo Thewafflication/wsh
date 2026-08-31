@@ -27,6 +27,9 @@ param(
     [string] $Config,
     [string] $HostSource,
     [string] $StageDir,
+    [string] $Wsh,
+    [string] $EquivalenceStatic,
+    [string] $EquivalenceShared,
     [string] $TargetArchitecture,
     [string] $EvidenceDirectory,
     [string] $RepositoryRoot,
@@ -113,6 +116,33 @@ switch ($TestCase) {
             '-NoProfile', '-File', $VerifyInstalled,
             '-Compiler', $Compiler, '-BuildDir', $BuildDir, '-Config', $Config,
             '-Source', $HostSource, '-StageDir', $StageDir)
+    }
+    'TC-0106' {
+        $cases = @(
+            @{ Source = 'x=alpha; fn set { x=beta }; set'; Status = 0 },
+            @{ Source = 'text::join --separator : --into joined alpha beta'; Status = 0 },
+            @{ Source = 'system::architecture --into arch'; Status = 0 },
+            @{ Source = 'exit 7'; Status = 7 }
+        )
+        foreach ($case in $cases) {
+            $observed = @{}
+            foreach ($artifact in @(
+                @{ Name = 'static'; Path = $EquivalenceStatic; Prefix = @() },
+                @{ Name = 'shared'; Path = $EquivalenceShared; Prefix = @() },
+                @{ Name = 'executable'; Path = $Wsh; Prefix = @('-c') }
+            )) {
+                $caseOutput = & $artifact.Path @($artifact.Prefix) $case.Source
+                $observed[$artifact.Name] = $LASTEXITCODE
+                Add-Output "$($artifact.Name): $($caseOutput -join ' ')"
+            }
+            $values = @($observed.Values | Sort-Object -Unique)
+            if ($values.Count -ne 1 -or $values[0] -ne $case.Status) {
+                Fail ("equivalence mismatch for '{0}': static={1}, shared={2}, " +
+                    "executable={3}, expected={4}" -f $case.Source,
+                    $observed.static, $observed.shared, $observed.executable,
+                    $case.Status)
+            }
+        }
     }
     default {
         Write-Error "Unknown M8 test case: $TestCase"
