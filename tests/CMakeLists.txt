@@ -91,6 +91,15 @@ target_include_directories(
 )
 target_link_libraries(fuzz-smoke PRIVATE wsh_static)
 
+# M9 resource-exhaustion bound checks for the portable core.
+add_executable(resource-bounds resource_bounds.c)
+target_include_directories(
+    resource-bounds
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(resource-bounds PRIVATE wsh_static)
+
 add_executable(
     frontend-tests
     frontend_tests.c
@@ -104,6 +113,7 @@ target_include_directories(
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
 wsh_configure_executable(fuzz-smoke)
+wsh_configure_executable(resource-bounds)
 wsh_configure_executable(abi-conformance-tests)
 wsh_configure_executable(abi-header-hygiene)
 wsh_configure_executable(abi-conformance-shared-tests)
@@ -153,6 +163,14 @@ set_tests_properties(
     fuzz-smoke
     PROPERTIES
         LABELS "M9;security;fuzz"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
+
+add_test(NAME resource-bounds COMMAND resource-bounds)
+set_tests_properties(
+    resource-bounds
+    PROPERTIES
+        LABELS "M9;security;limits"
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
