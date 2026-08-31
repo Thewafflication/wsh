@@ -26,18 +26,21 @@ exists, and are not inferred locally.
 
 | Date or order | Phase | Activity | Output |
 | --- | --- | --- | --- |
-| 2026-08-30 #1 | Baseline/Plan | Draft accepted M9 plan grounded in the M9 scope and WSH-DFS-0001 | Commit pending |
+| 2026-08-30 #1 | Baseline/Plan | Draft accepted M9 plan grounded in the M9 scope and WSH-DFS-0001 | Commit `812d5f9` |
+| 2026-08-30 #2 | Implement | Add the input fuzzing smoke harness over the decode/lex/parse surface; verify recursion/length bounds | Commit `b2fa22a` |
 
 ## Verification Log
 
 | Date | Configuration or method | Result | Evidence or failure reference |
 | --- | --- | --- | --- |
+| 2026-08-30 | `ctest --preset x64-debug -R fuzz-smoke` (post `b2fa22a`) | Pass: 30,029 inputs decoded/lexed/parsed without fault; 100k-deep nesting bounded | Local CTest run |
 
 ## Decisions and Scope Changes
 
 | Decision or change | Authority | Impact | Reference |
 | --- | --- | --- | --- |
 | Begin M9 after M8 completion | Owner request ("continue") | Starts compatibility and security closure under the accepted plan | This log |
+| Verify the parser depth/length bounds with pathological fuzz inputs rather than only random ones | WSH-DFS-0001 availability control (unbounded parsing) | Confirms 100k-deep nesting reaches a defined status instead of a stack overflow | Commit `b2fa22a` |
 
 ## Problems, Defects, and Recovery
 
@@ -54,6 +57,7 @@ exists, and are not inferred locally.
 | Goal or work period | Tokens used | Elapsed time | Source |
 | --- | ---: | ---: | --- |
 | M9 Baseline/Plan | ~26,000 est. | Not reported | Claude Code, assistant estimate |
+| Input fuzzing smoke harness (`b2fa22a`) | ~30,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
