@@ -35,6 +35,7 @@ total.
 | 2026-08-30 #12 | Verify | Add the installed-SDK consumption test: compile and run the host against the installed headers, import library, and DLL | Commit `6785cc9` |
 | 2026-08-30 #13 | Review | Write the M8 review record (checklist, defect patterns, residual boundaries) | Commit `1b3a3ae` |
 | 2026-08-30 #14 | Specify | Add M8 requirements, TeX test specs, and controlled implementations (TC-0100..0105); wire m8-traceability and consolidate the embedding tests into the controlled pattern | Commit `ff37162` |
+| 2026-08-30 #15 | Verify/evidence | Generate controlled execution-evidence records per case; wire the m8-evidence gate (6 passing records) | Commit `1d9f5a9` |
 
 ## Verification Log
 
@@ -63,6 +64,8 @@ total.
 | 2026-08-30 | Full embedding suite (post `6785cc9`) | Pass (7/7) | Local CTest run |
 | 2026-08-30 | `m8-traceability` (post `ff37162`) | Pass: 6 requirements, 6 specifications, 6 implementations | Local CTest run |
 | 2026-08-30 | Controlled `m8-TC-0100..0105` (post `ff37162`) | Pass (6/6) | Local CTest run |
+| 2026-08-30 | `m8-evidence` (post `1d9f5a9`) | Pass: 6 passing execution-evidence records validated | Local CTest run |
+| 2026-08-30 | Full M8 suite (post `1d9f5a9`) | Pass (8/8: traceability + 6 controlled + evidence) | Local CTest run |
 
 ## Decisions and Scope Changes
 
@@ -108,6 +111,7 @@ total.
 | Installed-SDK consumption test (`6785cc9`) | ~26,000 est. | Not reported | Claude Code, assistant estimate |
 | M8 review record (`1b3a3ae`) | ~20,000 est. | Not reported | Claude Code, assistant estimate |
 | M8 Specify artifacts + traceability (`ff37162`) | ~52,000 est. | Not reported | Claude Code, assistant estimate |
+| M8 controlled execution evidence (`1d9f5a9`) | ~34,000 est. | Not reported | Claude Code, assistant estimate |
 
 ## Preservation and Handoff
 
@@ -137,13 +141,10 @@ exported. All committed and pushed; validated on `x64-debug`.
    adding one needs a resource compiler absent from the TinyCC toolchain. Either
    introduce a resource-compilation step or record the resource omission as an
    approved release limitation; `SOVERSION` remains asserted through the build.
-3. **WSP phase artifacts.** Design (`8209d16`), Review (`1b3a3ae`), Specify
-   (requirements/specs/implementations and the `m8-traceability` gate,
-   `ff37162`) are done. Still to produce: TeX **evidence** generation for the
-   controlled cases (a `run-m8-test` evidence path plus an `m8-evidence` CTest
-   like the earlier milestones, gated on the TeX pipeline) and the closeout
-   (`m08-closeout.md`); then record the post-M8 roadmap recalibration and add
-   the M8 row to the Milestone Status Record.
+3. **WSP phase artifacts.** Design (`8209d16`), Review (`1b3a3ae`), Specify +
+   traceability (`ff37162`), and controlled Evidence (`1d9f5a9`,
+   `m8-evidence`) are done. Remaining: closeout (`m08-closeout.md`), the
+   post-M8 roadmap recalibration, and the M8 Milestone Status Record row.
 4. **Cross-architecture.** `x86` is verified: the export set is exactly the
    100 undecorated symbols and the C embedding suite passes (the FFI test is
    correctly skipped for the 64-bit interpreter). `arm64` cross-compiles but
