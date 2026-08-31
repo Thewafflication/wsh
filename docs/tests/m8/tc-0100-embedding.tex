@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0100}
+\def\TCTitle{Stable ABI 1 conformance and misuse}
+\def\TCPurpose{Verify the static and shared libraries present the same ABI 1 surface and that documented misuse returns a defined error.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0100}
+\def\TCDesignRef{ADR-0005 and M8 design}
+\def\TCFeatureRef{context, value, diagnostic, version, misuse}
+\def\TCTestTechnique{Interface conformance and negative testing.}
+\def\TCPreconditions{The embedding libraries and examples are built.}
+\def\TCEnvironment{Local TinyCC/WCRT build tree for the target architecture.}
+\def\TCAssumptions{The portable embedding surface excludes the Windows runtime.}
+\def\TCInputData{Valid lifecycle calls and null owners, absent variables, out-of-range indices, and empty status queries.}
+\def\TCInitialState{No embedding context or artifact has been created for the case.}
+\def\TCProcedure{Run the conformance and misuse suite linked against the static archive and against the shared library.}
+\def\TCExpectedResult{Every case passes identically through both linkages.}
+\def\TCPostConditions{All created contexts and staged artifacts are released.}
+\TCTemplate
+\end{document}

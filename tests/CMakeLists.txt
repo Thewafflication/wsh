@@ -128,77 +128,14 @@ set_tests_properties(
         TIMEOUT "${WSH_TEST_TIMEOUT}"
 )
 
-add_test(NAME abi-conformance COMMAND abi-conformance-tests)
-set_tests_properties(
-    abi-conformance
-    PROPERTIES
-        LABELS "M8;unit;embedding"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
-
-add_test(NAME abi-header-hygiene COMMAND abi-header-hygiene)
-set_tests_properties(
-    abi-header-hygiene
-    PROPERTIES
-        LABELS "M8;unit;embedding;quality"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
-
-add_test(NAME abi-conformance-shared COMMAND abi-conformance-shared-tests)
-set_tests_properties(
-    abi-conformance-shared
-    PROPERTIES
-        LABELS "M8;unit;embedding;shared"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
-
-add_test(NAME embedding-host-example COMMAND embedding-host-example)
-set_tests_properties(
-    embedding-host-example
-    PROPERTIES
-        LABELS "M8;example;embedding"
-        PASS_REGULAR_EXPRESSION "host: ok"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
-
-# The second-language FFI host proves the shared DLL exports the whole ABI to
-# a non-C caller. It is optional so a host without Python still configures, and
-# it only runs when the interpreter's bitness matches the target: a 64-bit
-# interpreter cannot load a 32-bit DLL and vice versa.
+# The controlled M8 embedding cases (below, after the PowerShell discovery)
+# execute these built artifacts. The optional Python interpreter drives the
+# second-language FFI case; the runner skips it when the interpreter bitness
+# does not match the target.
 find_program(WSH_PYTHON_EXECUTABLE NAMES python)
-if(WSH_PYTHON_EXECUTABLE)
-    execute_process(
-        COMMAND "${WSH_PYTHON_EXECUTABLE}" -c "import struct;print(struct.calcsize('P')*8)"
-        OUTPUT_VARIABLE WSH_PYTHON_BITS
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(WSH_TARGET_ARCHITECTURE STREQUAL "x86")
-        set(WSH_TARGET_BITS "32")
-    else()
-        set(WSH_TARGET_BITS "64")
-    endif()
-    if(WSH_PYTHON_BITS STREQUAL WSH_TARGET_BITS)
-        add_test(
-            NAME embedding-host-python
-            COMMAND
-                "${WSH_PYTHON_EXECUTABLE}"
-                "${CMAKE_SOURCE_DIR}/examples/embedding/host.py"
-                "$<TARGET_FILE:wsh_shared>"
-        )
-        set_tests_properties(
-            embedding-host-python
-            PROPERTIES
-                LABELS "M8;example;embedding;ffi"
-                PASS_REGULAR_EXPRESSION "host.py: ok"
-                TIMEOUT "${WSH_TEST_TIMEOUT}"
-        )
-    else()
-        message(STATUS
-            "Python is ${WSH_PYTHON_BITS}-bit but target is ${WSH_TARGET_BITS}-bit; "
-            "skipping embedding-host-python FFI test")
-    endif()
-else()
-    message(STATUS "Python not found; skipping embedding-host-python FFI test")
+if(NOT WSH_PYTHON_EXECUTABLE)
+    set(WSH_PYTHON_EXECUTABLE "")
+    message(STATUS "Python not found; the M8 FFI case will skip")
 endif()
 
 add_test(NAME frontend-unit COMMAND frontend-tests)
@@ -224,42 +161,51 @@ find_program(
 )
 
 add_test(
-    NAME abi-export-manifest
+    NAME m8-traceability
     COMMAND
         "${WSH_POWERSHELL_EXECUTABLE}"
         -NoProfile
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/verify-abi-exports.ps1"
-        -SharedLibrary "$<TARGET_FILE:wsh_shared>"
-        -Manifest "${CMAKE_CURRENT_SOURCE_DIR}/embedding/abi1-exports.txt"
+        -File "${CMAKE_SOURCE_DIR}/wsp/tools/Test-Traceability.ps1"
+        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        -RequirementsPath "docs/requirements/m8"
+        -TestSpecificationsPath "docs/tests/m8"
+        -TestImplementationsPath "tests/m8"
 )
-set_tests_properties(
-    abi-export-manifest
-    PROPERTIES
-        LABELS "M8;embedding;quality"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
+set_tests_properties(m8-traceability PROPERTIES LABELS "M8;quality")
 
-# Prove the installed SDK (headers, import library, DLL) is consumable: install
-# to a staging prefix, compile the host example against the installed headers
-# only, and run it against the installed DLL.
-add_test(
-    NAME embedding-installed-sdk
-    COMMAND
-        "${WSH_POWERSHELL_EXECUTABLE}"
-        -NoProfile
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/verify-installed-sdk.ps1"
-        -Compiler "${CMAKE_C_COMPILER}"
-        -BuildDir "${CMAKE_BINARY_DIR}"
-        -Config "$<CONFIG>"
-        -Source "${CMAKE_SOURCE_DIR}/examples/embedding/host.c"
-        -StageDir "${CMAKE_BINARY_DIR}/sdk-stage/$<CONFIG>"
-)
-set_tests_properties(
-    embedding-installed-sdk
-    PROPERTIES
-        LABELS "M8;embedding;example;install"
-        TIMEOUT "${WSH_TEST_TIMEOUT}"
-)
+set(WSH_M8_TEST_IDS 0100 0101 0102 0103 0104 0105)
+foreach(test_id IN LISTS WSH_M8_TEST_IDS)
+    add_test(
+        NAME "m8-TC-${test_id}"
+        COMMAND
+            "${WSH_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/m8/run-tc-${test_id}-m8.ps1"
+            -ConformanceStatic "$<TARGET_FILE:abi-conformance-tests>"
+            -ConformanceShared "$<TARGET_FILE:abi-conformance-shared-tests>"
+            -HostExample "$<TARGET_FILE:embedding-host-example>"
+            -HeaderHygiene "$<TARGET_FILE:abi-header-hygiene>"
+            -SharedLibrary "$<TARGET_FILE:wsh_shared>"
+            -Manifest "${CMAKE_CURRENT_SOURCE_DIR}/embedding/abi1-exports.txt"
+            -VerifyExports "${CMAKE_CURRENT_SOURCE_DIR}/verify-abi-exports.ps1"
+            -VerifyInstalled "${CMAKE_CURRENT_SOURCE_DIR}/verify-installed-sdk.ps1"
+            -Python "${WSH_PYTHON_EXECUTABLE}"
+            -PythonScript "${CMAKE_SOURCE_DIR}/examples/embedding/host.py"
+            -Compiler "${CMAKE_C_COMPILER}"
+            -BuildDir "${CMAKE_BINARY_DIR}"
+            -Config "$<CONFIG>"
+            -HostSource "${CMAKE_SOURCE_DIR}/examples/embedding/host.c"
+            -StageDir "${CMAKE_BINARY_DIR}/sdk-stage/$<CONFIG>"
+            -TargetArchitecture "${WSH_TARGET_ARCHITECTURE}"
+    )
+    set_tests_properties(
+        "m8-TC-${test_id}"
+        PROPERTIES
+            DEPENDS m8-traceability
+            LABELS "M8;controlled;embedding"
+            TIMEOUT "${WSH_TEST_TIMEOUT}"
+    )
+endforeach()
 
 add_test(
     NAME frontend-process

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0104}
+\def\TCTitle{Self-contained public headers}
+\def\TCPurpose{Verify each public header compiles standalone and links using no internal type.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0104}
+\def\TCDesignRef{ADR-0005 and M8 design}
+\def\TCFeatureRef{header hygiene, no internal type}
+\def\TCTestTechnique{Interface conformance and negative testing.}
+\def\TCPreconditions{The embedding libraries and examples are built.}
+\def\TCEnvironment{Local TinyCC/WCRT build tree for the target architecture.}
+\def\TCAssumptions{The portable embedding surface excludes the Windows runtime.}
+\def\TCInputData{All four public embedding headers.}
+\def\TCInitialState{No embedding context or artifact has been created for the case.}
+\def\TCProcedure{Compile a translation unit that includes only the public headers and references one entry point from each.}
+\def\TCExpectedResult{The unit compiles under the strict flags and links from the static library.}
+\def\TCPostConditions{All created contexts and staged artifacts are released.}
+\TCTemplate
+\end{document}

@@ -1,0 +1,22 @@
+\documentclass[letterpaper]{article}
+\usepackage[letterpaper,margin=1in]{geometry}
+\input{wsp/testing/test-case-library.tex}
+\begin{document}
+\def\TCID{TC-0105}
+\def\TCTitle{Installed SDK consumption}
+\def\TCPurpose{Verify the installed SDK is consumable by an external host.}
+\def\TCPriority{\TCPriorityCritical}
+\def\TCRequirementRef{WSH-REQ-0105}
+\def\TCDesignRef{ADR-0005 and M8 design}
+\def\TCFeatureRef{install layout, import library, DLL}
+\def\TCTestTechnique{Interface conformance and negative testing.}
+\def\TCPreconditions{The embedding libraries and examples are built.}
+\def\TCEnvironment{Local TinyCC/WCRT build tree for the target architecture.}
+\def\TCAssumptions{The portable embedding surface excludes the Windows runtime.}
+\def\TCInputData{A freshly installed SDK prefix.}
+\def\TCInitialState{No embedding context or artifact has been created for the case.}
+\def\TCProcedure{Compile the host example against the installed headers and import library and run it against the installed DLL.}
+\def\TCExpectedResult{The host builds and runs against the installed SDK only.}
+\def\TCPostConditions{All created contexts and staged artifacts are released.}
+\TCTemplate
+\end{document}
