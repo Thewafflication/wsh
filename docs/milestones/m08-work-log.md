@@ -7,7 +7,8 @@ examples, conformance and misuse tests).
 
 **Author:** Claude (Overlord cross-project assistant), on behalf of the owner.
 
-**Status:** Active (2026-08-30 session).
+**Status:** Complete (2026-08-30); ARM64 execution and the PE version resource
+are carried to M9/release per the closeout.
 
 This log records the chronological execution of the M8 milestone. It
 supplements, and does not replace, the accepted [M8 plan](m08-plan.md), the

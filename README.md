@@ -12,8 +12,8 @@ variables, consoles, and handles.
 The 1.0 requirements, specification, architecture, and project process
 completed the M0 baseline review and form the accepted project baseline. The
 M1 repository skeleton, M2 portable core, M3 lexer/parser, M4 language
-evaluator, M5 Windows execution runtime, M6 embedded standard library, and M7
-native interactive shell are implemented.
+evaluator, M5 Windows execution runtime, M6 embedded standard library, M7
+native interactive shell, and M8 embedding SDK are implemented.
 
 ## Install
 

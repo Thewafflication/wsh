@@ -200,6 +200,7 @@ the release receives explicit approval.
 | M5 | Complete on 2026-08-22 | `docs/milestones/m05-closeout.md`, `docs/milestones/m05-work-log.md` |
 | M6 | Complete on 2026-08-23 | `docs/milestones/m06-closeout.md`, `docs/milestones/m06-work-log.md` |
 | M7 | Complete on 2026-08-24 | `docs/milestones/m07-closeout.md`, `docs/milestones/m07-work-log.md` |
+| M8 | Complete on 2026-08-30; ARM64 execution and PE version resource carried to M9/release | `docs/milestones/m08-closeout.md`, `docs/milestones/m08-work-log.md` |
 
 **M3 recalibration (2026-08-12):** The 132k reconstructed M3 estimate is 12
 percent below its 150k control budget. Parser failure atomicity, source
@@ -216,6 +217,15 @@ the scheduled recalibration remains after M5.
 negative verification matched the phase forecast. No downstream estimate has
 crossed its replanning threshold, so the roadmap remains 1,510,000 tokens.
 The next scheduled recalibration remains after M8.
+
+**M8 recalibration (2026-08-30):** M8 delivered the embedding ABI 1 SDK within
+its accepted 135k control budget: the static/shared libraries, curated export
+surface, conformance/misuse/hygiene/host/FFI/installed-SDK tests, traceability,
+and controlled evidence completed without a scope change. Two residuals — ARM64
+execution and the PE version resource — are carried to the M9 matrix and
+release work rather than expanding M8. No downstream estimate crossed its
+replanning threshold, so the roadmap remains 1,510,000 tokens. The next
+scheduled recalibration is after M9 hardening.
 
 ## 6. Cross-Milestone Controls
 
