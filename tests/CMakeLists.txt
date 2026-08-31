@@ -82,6 +82,15 @@ target_include_directories(
 )
 target_link_libraries(embedding-host-example PRIVATE wsh_static)
 
+# M9 input fuzzing smoke harness over the public decode/lex/parse surface.
+add_executable(fuzz-smoke fuzz_smoke.c)
+target_include_directories(
+    fuzz-smoke
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+)
+target_link_libraries(fuzz-smoke PRIVATE wsh_static)
+
 add_executable(
     frontend-tests
     frontend_tests.c
@@ -94,6 +103,7 @@ target_include_directories(
         "${CMAKE_SOURCE_DIR}/src"
 )
 target_link_libraries(frontend-tests PRIVATE wsh_core)
+wsh_configure_executable(fuzz-smoke)
 wsh_configure_executable(abi-conformance-tests)
 wsh_configure_executable(abi-header-hygiene)
 wsh_configure_executable(abi-conformance-shared-tests)
@@ -137,6 +147,14 @@ if(NOT WSH_PYTHON_EXECUTABLE)
     set(WSH_PYTHON_EXECUTABLE "")
     message(STATUS "Python not found; the M8 FFI case will skip")
 endif()
+
+add_test(NAME fuzz-smoke COMMAND fuzz-smoke)
+set_tests_properties(
+    fuzz-smoke
+    PROPERTIES
+        LABELS "M9;security;fuzz"
+        TIMEOUT "${WSH_TEST_TIMEOUT}"
+)
 
 add_test(NAME frontend-unit COMMAND frontend-tests)
 set_tests_properties(
