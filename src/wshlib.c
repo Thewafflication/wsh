@@ -15,6 +15,12 @@ unsigned wsh_embedding_abi_version(void)
     return WSH_EMBEDDING_ABI;
 }
 
+/**< Embedding API version, always 1 for the 1.0 line. */
+uint32_t wsh_abi_version(void)
+{
+    return WSH_EMBEDDING_ABI;
+}
+
 const char *wsh_get_version_string(void)
 {
     return WSH_VERSION;
