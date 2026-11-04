@@ -11,6 +11,9 @@
 
 /* Embedding ABI version, always 1 for the 1.0 line. */
 
+#ifndef WSH_API_H
+#define WSH_API_H
+
 #if defined(WSH_SHARED_BUILD)
 #  define WSH_API __declspec(dllexport)
 #else
