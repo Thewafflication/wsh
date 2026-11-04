@@ -14,6 +14,8 @@
 #ifndef WSH_API_H
 #define WSH_API_H
 
+#include <stdint.h>
+
 #if defined(WSH_SHARED_BUILD)
 #  define WSH_API __declspec(dllexport)
 #else
@@ -21,6 +23,6 @@
 #endif
 
 /**< Embedding ABI version, always 1 for the 1.0 line. */
-uint32_t wsh_abi_version(void);
+WSH_API unsigned wsh_embedding_abi_version(void);
 
 #endif
