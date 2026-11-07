@@ -1,5 +1,4 @@
 /** @file api.h @brief Embedding ABI 1 export marker. */
-
 /* 
  * WSH_API marks the public embedding surface. When the shared library is
  * built (WSH_SHARED_BUILD), the marked functions are the only symbols the DLL
@@ -8,13 +7,10 @@
  * the shared library resolve the surface through its import definition and do
  * not require an import marker.
  */
-
 /* Embedding ABI version, always 1 for the 1.0 line. */
 
 #ifndef WSH_API_H
 #define WSH_API_H
-
-#include <stdint.h>
 
 #if defined(WSH_SHARED_BUILD)
 #  define WSH_API __declspec(dllexport)
