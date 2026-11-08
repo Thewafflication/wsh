@@ -19,6 +19,7 @@
 #endif
 
 /**< Embedding ABI version, always 1 for the 1.0 line. */
-WSH_API unsigned wsh_embedding_abi_version(void);
+#include <stdint.h>
+WSH_API uint32_t wsh_embedding_abi_version(void);
 
 #endif

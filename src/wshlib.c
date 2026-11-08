@@ -10,7 +10,7 @@
 #define WSH_WCRT_VERSION "unavailable"
 #endif
 
-unsigned wsh_embedding_abi_version(void)
+unsigned int wsh_embedding_abi_version(void)
 {
     return WSH_EMBEDDING_ABI;
 }

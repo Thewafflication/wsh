@@ -78,6 +78,8 @@ set(CMAKE_C_COMPILER "${_wsh_tinycc}" CACHE FILEPATH
 
 # CMake recognizes TinyCC's compiler driver, but it does not currently ship a
 # TinyCC archiver rule. TinyCC's -ar mode creates the static archives directly.
+# Set CMAKE_AR to use TinyCC's archiver mode so CMake can invoke it properly.
+set(CMAKE_AR "${CMAKE_C_COMPILER} -ar rcs")
 set(CMAKE_C_CREATE_STATIC_LIBRARY
     "<CMAKE_C_COMPILER> -ar rcs <TARGET> <OBJECTS>")
 set(CMAKE_SHARED_LIBRARY_C_FLAGS "-shared")
