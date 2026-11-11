@@ -1,5 +1,7 @@
 # wsh worker instructions
 
+Read PROJECT-WORK.md and AGENT-TASKS.md before planning.
+
 ## Current bounded goal
 
 Repair the existing public-header/embedding ABI regression under the ready
