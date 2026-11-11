@@ -16,7 +16,7 @@ extern "C" {
  * @return The runtime counterpart of the WSH_EMBEDDING_ABI macro, so a host
  *         can negotiate compatibility without recompiling against the header.
  */
-WSH_API unsigned wsh_embedding_abi_version(void);
+WSH_API uint32_t wsh_embedding_abi_version(void);
 WSH_API const char *wsh_get_version_string(void);
 WSH_API const char *wsh_get_runtime_name(void);
 WSH_API const char *wsh_get_dependency_summary(void);
